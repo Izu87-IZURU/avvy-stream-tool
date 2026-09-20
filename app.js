@@ -971,22 +971,23 @@ function home(){
     <div class="grid">
 
       <div class="card">
-        <h3>🎁 ギフト</h3>
-        <div class="big">
-          ${total}
-        </div>
+  <h3>🎁 ギフト</h3>
 
-        <p class="muted">
-          登録ギフトの合計カウント
-        </p>
+  <div class="big">
+    ${total}
+  </div>
 
-        <button
-          class="primary"
-          data-jump="gift"
-        >
-          ギフト耐久を開く
-        </button>
-      </div>
+  <p class="muted">
+    登録ギフトの合計カウント
+  </p>
+
+  <button
+    class="primary"
+    data-jump="gift"
+  >
+    ギフト耐久を開く
+  </button>
+</div>
 
       <div class="card">
         <h3>📊 企画カウント</h3>
