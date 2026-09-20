@@ -1,5 +1,6 @@
 const hasConfig=()=>window.SUPABASE_URL&&window.SUPABASE_ANON_KEY;
 let sb=null;
+let loadQueue=Promise.resolve();
 
 if(hasConfig()&&window.supabase){
   sb=window.supabase.createClient(
@@ -189,6 +190,7 @@ let state={
   user:null,
   appUser:null,
   appUserId:null,
+  giftDefinitionUserId:null,
   profile:null,
 
   gifts:[],
@@ -305,108 +307,189 @@ async function loadCustomItems(){
   });
 }
 
-async function ensureOfficialGifts(userId){
-  if(!sb){
-    throw new Error('Supabaseが初期化されていません。');
-  }
-
-  if(!userId){
-    throw new Error('アプリユーザーIDが取得できていません。');
-  }
-
-  const all=OFFICIAL_GIFTS.map((g,i)=>({
-    user_id:userId,
-    name:g.name,
-    coin:g.coin,
-    emoji:'🎁',
-    target:10,
-    sort_order:i,
-    source:'official',
-    event_key:null,
-    group_name:g.group||null,
-    mascot:g.mascot||null,
-    variant:g.variant||null
-  }));
-
-  // 診断版では、重複削除やgift_countsの更新を行わず、
-  // gift_definitionsの確認と不足分の登録だけを行います。
-  const existingResult=await sb
-    .from('gift_definitions')
-    .select('id,name,coin,source,event_key,group_name,mascot,variant')
-    .eq('user_id',userId);
-
-  if(existingResult.error){
-    throw new Error(
-      `gift_definitionsの確認に失敗しました：${existingResult.error.message||existingResult.error}`
-    );
-  }
-
-  const existing=existingResult.data||[];
-
-  const keySet=new Set(
-    existing.map(g=>
-      `${g.source||'original'}|${g.event_key||''}|${g.name}|${g.coin}|${g.group_name||''}|${g.mascot||''}|${g.variant||''}`
+async function ensureOfficialGifts(appUserId, authUserId){
+  const all=[
+    ...OFFICIAL_GIFTS.map((g,i)=>({
+      ...g, source:'official', event_key:null, sort_order:i
+    })),
+    ...Object.entries(EVENT_GIFTS).flatMap(([event,gs])=>
+      gs.map((g,i)=>({
+        ...g, source:'event', event_key:event, sort_order:i
+      }))
     )
+  ];
+
+  const candidates=[
+    appUserId,
+    authUserId
+  ].filter(Boolean).filter(
+    (v,i,a)=>a.indexOf(v)===i
   );
 
-  const missing=all.filter(g=>!keySet.has(
-    `${g.source}|${g.event_key||''}|${g.name}|${g.coin}|${g.group_name||''}|${g.mascot||''}|${g.variant||''}`
-  ));
+  let lastError=null;
 
-  console.log(
-    `公式ギフト同期：既存公式${existing.filter(g=>g.source==='official').length}件 / 不足${missing.length}件 / 定義${OFFICIAL_GIFTS.length}件`
-  );
+  for(const ownerId of candidates){
+    const rows=all.map(g=>({
+      user_id:ownerId,
+      name:g.name,
+      coin:g.coin,
+      emoji:'🎁',
+      target:10,
+      sort_order:g.sort_order,
+      source:g.source,
+      event_key:g.event_key,
+      group_name:g.group||null,
+      mascot:g.mascot||null,
+      variant:g.variant||null
+    }));
 
-  if(!missing.length){
+    const {
+      data:existingAll,
+      error:existingError
+    }=await sb
+      .from('gift_definitions')
+      .select('id,name,coin,source,event_key')
+      .eq('user_id',ownerId);
+
+    if(existingError){
+      lastError=existingError;
+      continue;
+    }
+
+    const existingOfficial=(existingAll||[]).filter(
+      g=>g.source==='official'
+    );
+
+    const groups=new Map();
+
+    for(const g of existingOfficial){
+      const key=`${g.name}|${g.coin}`;
+      if(!groups.has(key))groups.set(key,[]);
+      groups.get(key).push(g);
+    }
+
+    const duplicateIds=[];
+
+    for(const rowsOfSameGift of groups.values()){
+      if(rowsOfSameGift.length<=1)continue;
+
+      const keep=rowsOfSameGift[0];
+      const ids=rowsOfSameGift.slice(1).map(x=>x.id);
+
+      const {
+        data:counts,
+        error:countError
+      }=await sb
+        .from('gift_counts')
+        .select('gift_id,count')
+        .eq('user_id',appUserId)
+        .in('gift_id',[keep.id,...ids]);
+
+      if(countError){
+        lastError=countError;
+        continue;
+      }
+
+      const total=(counts||[]).reduce(
+        (sum,x)=>sum+Number(x.count||0),
+        0
+      );
+
+      if(total>0){
+        const {error}=await sb
+          .from('gift_counts')
+          .upsert({
+            user_id:appUserId,
+            gift_id:keep.id,
+            count:total,
+            updated_at:new Date().toISOString()
+          },{onConflict:'user_id,gift_id'});
+
+        if(error){
+          lastError=error;
+          continue;
+        }
+      }
+
+      if(ids.length){
+        const {error}=await sb
+          .from('gift_counts')
+          .delete()
+          .eq('user_id',appUserId)
+          .in('gift_id',ids);
+
+        if(error){
+          lastError=error;
+          continue;
+        }
+
+        duplicateIds.push(...ids);
+      }
+    }
+
+    if(duplicateIds.length){
+      const {error}=await sb
+        .from('gift_definitions')
+        .delete()
+        .eq('user_id',ownerId)
+        .in('id',duplicateIds);
+
+      if(error){
+        lastError=error;
+        continue;
+      }
+    }
+
+    const {
+      data:existing,
+      error:reloadError
+    }=await sb
+      .from('gift_definitions')
+      .select('id,name,coin,source,event_key')
+      .eq('user_id',ownerId);
+
+    if(reloadError){
+      lastError=reloadError;
+      continue;
+    }
+
+    const keySet=new Set(
+      (existing||[]).map(g=>
+        `${g.source||'original'}|${g.event_key||''}|${g.name}|${g.coin}`
+      )
+    );
+
+    const missing=rows.filter(g=>
+      !keySet.has(
+        `${g.source}|${g.event_key||''}|${g.name}|${g.coin}`
+      )
+    );
+
+    if(missing.length){
+      const {error}=await sb
+        .from('gift_definitions')
+        .insert(missing);
+
+      if(error){
+        lastError=error;
+        continue;
+      }
+    }
+
+    state.giftDefinitionUserId=ownerId;
     return;
   }
 
-  const insertResult=await sb
-    .from('gift_definitions')
-    .insert(missing);
-
-  if(insertResult.error){
-    throw new Error(
-      `公式ギフトの登録に失敗しました：${insertResult.error.message||insertResult.error}`
-    );
-  }
+  throw lastError || new Error(
+    'gift_definitions に利用可能なユーザーIDがありません。'
+  );
 }
 
-async function loadGiftDefinitions(userId){
-  if(!sb||!userId){
-    throw new Error(
-      'ギフトを読み込むためのユーザー情報がありません。'
-    );
-  }
-
-  await ensureOfficialGifts(userId);
-
-  const result=await sb
-    .from('gift_definitions')
-    .select('*')
-    .eq('user_id',userId)
-    .order('coin')
-    .order('source')
-    .order('sort_order');
-
-  if(result.error){
-    throw new Error(
-      `gift_definitionsの読み込みに失敗しました：${result.error.message||result.error}`
-    );
-  }
-
-  const data=result.data||[];
-
-  if(!data.length){
-    throw new Error(
-      `gift_definitionsが0件です。公式ギフト${OFFICIAL_GIFTS.length}種類を登録した後も取得できませんでした。`
-    );
-  }
-
-  return data;
+function giftOwnerId(){
+  return state.giftDefinitionUserId||state.appUserId;
 }
 
-async function load(){
+async function loadInternal(){
   state.loading=true;
   render();
 
@@ -472,33 +555,27 @@ async function load(){
       }
     }
 
-    let giftDefinitions;
-
     try{
-      giftDefinitions=await loadGiftDefinitions(
-        state.appUserId
+      await ensureOfficialGifts(
+        state.appUserId,
+        state.user?.id
       );
     }catch(giftSetupError){
       console.error(
-        '公式ギフト読み込みエラー:',
-        giftSetupError,
-        {
-          message:giftSetupError?.message,
-          userId:state.appUserId
-        }
+        '公式ギフト初期化エラー:',
+        giftSetupError
       );
-      state.gifts=[];
       state.loading=false;
       render();
       toast(
-        giftSetupError?.message||
-        '公式ギフトの読み込みに失敗しました。'
+        '公式ギフトの準備に失敗しました。時間をおいて再読み込みしてください。'
       );
       return;
     }
 
     const [
       pr,
+      gd,
       gc,
       ic,
       cp,
@@ -511,6 +588,14 @@ async function load(){
         .select('*')
         .eq('id',state.appUserId)
         .maybeSingle(),
+
+      sb
+        .from('gift_definitions')
+        .select('*')
+        .eq('user_id',giftOwnerId())
+        .order('coin')
+        .order('source')
+        .order('sort_order'),
 
       sb
         .from('gift_counts')
@@ -548,25 +633,9 @@ async function load(){
         .eq('user_id',state.appUserId)
     ]);
 
-    if(pr.error){
-      console.error('プロフィール読み込みエラー:',pr.error);
-    }
-
-    if(gc.error){
-      console.error('ギフト達成数読み込みエラー:',gc.error);
-      toast(
-        `ギフト達成数の読み込みに失敗しました：${gc.error.message||gc.error}`
-      );
-    }
-
     state.profile=pr.data||null;
 
-    // gift_definitionsはloadGiftDefinitionsで必ず存在確認済み。
-    state.gifts=giftDefinitions;
-
-    console.log(
-      `ギフト読み込み完了：${state.gifts.length}種類（公式${state.gifts.filter(g=>g.source==='official').length}種類）`
-    );
+    state.gifts=gd.data||[];
 
     state.giftCounts=
       Object.fromEntries(
@@ -624,6 +693,7 @@ async function load(){
   }else{
     state.appUser=null;
     state.appUserId=null;
+  state.giftDefinitionUserId=null;
     state.profile=null;
     state.gifts=[];
     state.giftCounts={};
@@ -637,6 +707,16 @@ async function load(){
 
   state.loading=false;
   render();
+}
+
+async function load(){
+  const run=loadQueue.then(()=>loadInternal());
+  loadQueue=run.catch(error=>{
+    console.error('loadエラー:',error);
+    state.loading=false;
+    render();
+  });
+  return run;
 }
 
 async function signUp(
@@ -706,6 +786,13 @@ async function startNewUser(){
     }
 
     await load();
+
+    // 新規ユーザー作成直後は、公式ギフトがまだ表示用 state に反映されていない場合があるため、
+    // ここでも公式ギフトを確実に初期化してから再読み込みします。
+    if(state.appUserId){
+      await ensureOfficialGifts(state.appUserId);
+      await load();
+    }
 
     if(!state.appUser?.user_code){
       throw new Error(
@@ -822,6 +909,7 @@ async function signOut(){
   state.user=null;
   state.appUser=null;
   state.appUserId=null;
+  state.giftDefinitionUserId=null;
   state.profile=null;
   state.gifts=[];
   state.giftCounts={};
@@ -976,6 +1064,7 @@ function home(){
 
       <div class="card">
         <h3>🎁 ギフト</h3>
+r
         <div class="big">
           ${total}
         </div>
@@ -2050,7 +2139,7 @@ function newOrigift(){
         await sb
           .from('gift_definitions')
           .insert({
-            user_id:state.appUserId,
+            user_id:giftOwnerId(),
             name,
             coin,
             emoji,
@@ -3049,7 +3138,7 @@ function giftManager(){
         await sb
           .from('gift_definitions')
           .insert({
-            user_id:state.appUserId,
+            user_id:giftOwnerId(),
             name,
             coin,
             emoji,
@@ -3367,7 +3456,7 @@ function customManager(project){
         const itemId=
           b.dataset.delCustomItem;
 
-        await sb
+        const {error:countDeleteError}=await sb
           .from('endurance_item_counts')
           .delete()
           .eq(
@@ -3383,7 +3472,12 @@ function customManager(project){
             itemId
           );
 
-        await sb
+        if(countDeleteError){
+          toast(countDeleteError.message);
+          return;
+        }
+
+        const {error:itemDeleteError}=await sb
           .from('custom_items')
           .delete()
           .eq(
@@ -3394,6 +3488,11 @@ function customManager(project){
             'user_id',
             state.appUserId
           );
+
+        if(itemDeleteError){
+          toast(itemDeleteError.message);
+          return;
+        }
 
         await load();
 
@@ -3922,7 +4021,7 @@ function bind(){
             )
             .eq(
               'user_id',
-              state.appUserId
+              giftOwnerId()
             );
 
           await load();
@@ -4038,9 +4137,7 @@ function bind(){
 
 if(sb){
   sb.auth.onAuthStateChange(()=>{
-    // 初期読み込みや新規ユーザー作成時は、それぞれの処理から
-    // load() を呼ぶため、ここでは二重読み込みを起こさないようにする。
-    render();
+    load();
   });
 }
 
