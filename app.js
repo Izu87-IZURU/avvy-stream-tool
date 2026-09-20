@@ -187,7 +187,6 @@ const EVENT_KEYS=Object.keys(EVENT_GIFTS);
 let state={
   tab:'home',
   user:null,
-  authUserId:null,
   appUser:null,
   appUserId:null,
   profile:null,
@@ -306,7 +305,7 @@ async function loadCustomItems(){
   });
 }
 
-async function ensureOfficialGifts(giftDefinitionUserId, appUserId){
+async function ensureOfficialGifts(userId){
   const all=[
     ...OFFICIAL_GIFTS.map((g,i)=>({
       ...g, source:'official', event_key:null, sort_order:i
@@ -317,7 +316,7 @@ async function ensureOfficialGifts(giftDefinitionUserId, appUserId){
       }))
     )
   ].map(g=>({
-    user_id:giftDefinitionUserId,
+    user_id:userId,
     name:g.name,
     coin:g.coin,
     emoji:'🎁',
@@ -333,7 +332,7 @@ async function ensureOfficialGifts(giftDefinitionUserId, appUserId){
   const {data:existingAll,error:existingError}=await sb
     .from('gift_definitions')
     .select('id,name,coin,source,event_key')
-    .eq('user_id',giftDefinitionUserId);
+    .eq('user_id',userId);
   if(existingError)throw existingError;
 
   const existingOfficial=(existingAll||[]).filter(g=>g.source==='official');
@@ -354,14 +353,14 @@ async function ensureOfficialGifts(giftDefinitionUserId, appUserId){
     const {data:counts,error:countError}=await sb
       .from('gift_counts')
       .select('gift_id,count')
-      .eq('user_id',appUserId)
+      .eq('user_id',userId)
       .in('gift_id',[keep.id,...ids]);
     if(countError)throw countError;
 
     const total=(counts||[]).reduce((sum,x)=>sum+Number(x.count||0),0);
     if(total>0){
       const {error}=await sb.from('gift_counts').upsert({
-        user_id:appUserId,
+        user_id:userId,
         gift_id:keep.id,
         count:total,
         updated_at:new Date().toISOString()
@@ -371,7 +370,7 @@ async function ensureOfficialGifts(giftDefinitionUserId, appUserId){
 
     if(ids.length){
       const {error}=await sb.from('gift_counts').delete()
-        .eq('user_id',appUserId).in('gift_id',ids);
+        .eq('user_id',userId).in('gift_id',ids);
       if(error)throw error;
       duplicateIds.push(...ids);
     }
@@ -379,14 +378,14 @@ async function ensureOfficialGifts(giftDefinitionUserId, appUserId){
 
   if(duplicateIds.length){
     const {error}=await sb.from('gift_definitions').delete()
-      .eq('user_id',giftDefinitionUserId).in('id',duplicateIds);
+      .eq('user_id',userId).in('id',duplicateIds);
     if(error)throw error;
   }
 
   const {data:existing,error:reloadError}=await sb
     .from('gift_definitions')
     .select('id,name,coin,source,event_key')
-    .eq('user_id',giftDefinitionUserId);
+    .eq('user_id',userId);
   if(reloadError)throw reloadError;
 
   const keySet=new Set((existing||[]).map(g=>
@@ -403,7 +402,15 @@ async function ensureOfficialGifts(giftDefinitionUserId, appUserId){
   }
 }
 
+let loadPromise=null;
+
 async function load(){
+  if(loadPromise){
+    return loadPromise;
+  }
+
+  loadPromise=(async()=>{
+
   state.loading=true;
   render();
 
@@ -418,7 +425,6 @@ async function load(){
   }=await sb.auth.getUser();
 
   state.user=user;
-  state.authUserId=user?.id||null;
 
   if(user){
     const {
@@ -472,26 +478,20 @@ async function load(){
 
     try{
       await ensureOfficialGifts(
-        state.authUserId,
         state.appUserId
       );
-   }catch(giftSetupError){
-  console.error(
-    '公式ギフト初期化エラー:',
-    giftSetupError
-  );
-
-  state.loading=false;
-  render();
-
-  alert(
-    '公式ギフトの準備に失敗しました。\n\n' +
-    'エラー内容：\n' +
-    (giftSetupError?.message || String(giftSetupError))
-  );
-
-  return;
-}
+    }catch(giftSetupError){
+      console.error(
+        '公式ギフト初期化エラー:',
+        giftSetupError
+      );
+      state.loading=false;
+      render();
+      toast(
+        '公式ギフトの準備に失敗しました。時間をおいて再読み込みしてください。'
+      );
+      return;
+    }
 
     const [
       pr,
@@ -512,7 +512,7 @@ async function load(){
       sb
         .from('gift_definitions')
         .select('*')
-        .eq('user_id',state.authUserId)
+        .eq('user_id',state.appUserId)
         .order('coin')
         .order('source')
         .order('sort_order'),
@@ -611,7 +611,6 @@ async function load(){
     applyTheme();
 
   }else{
-    state.authUserId=null;
     state.appUser=null;
     state.appUserId=null;
     state.profile=null;
@@ -627,6 +626,13 @@ async function load(){
 
   state.loading=false;
   render();
+  })();
+
+  try{
+    return await loadPromise;
+  }finally{
+    loadPromise=null;
+  }
 }
 
 async function signUp(
@@ -695,13 +701,7 @@ async function startNewUser(){
       );
     }
 
-    const loaded=await load();
-
-    if(loaded===false){
-      throw new Error(
-        '公式ギフトの準備に失敗しました。'
-      );
-    }
+    await load();
 
     if(!state.appUser?.user_code){
       throw new Error(
@@ -794,13 +794,7 @@ async function takeoverUser(){
       );
     }
 
-    const loaded=await load();
-
-    if(loaded===false){
-      throw new Error(
-        '公式ギフトの準備に失敗しました。'
-      );
-    }
+    await load();
 
     alert(
       'データを引き継ぎました！'
@@ -822,7 +816,6 @@ async function signOut(){
   await sb.auth.signOut();
 
   state.user=null;
-  state.authUserId=null;
   state.appUser=null;
   state.appUserId=null;
   state.profile=null;
@@ -979,6 +972,7 @@ function home(){
 
       <div class="card">
         <h3>🎁 ギフト</h3>
+r
         <div class="big">
           ${total}
         </div>
@@ -2053,7 +2047,7 @@ function newOrigift(){
         await sb
           .from('gift_definitions')
           .insert({
-            user_id:state.authUserId,
+            user_id:state.appUserId,
             name,
             coin,
             emoji,
@@ -3052,7 +3046,7 @@ function giftManager(){
         await sb
           .from('gift_definitions')
           .insert({
-            user_id:state.authUserId,
+            user_id:state.appUserId,
             name,
             coin,
             emoji,
@@ -3925,7 +3919,7 @@ function bind(){
             )
             .eq(
               'user_id',
-              state.authUserId
+              state.appUserId
             );
 
           await load();
@@ -4039,11 +4033,9 @@ function bind(){
    Supabase起動
    ================================================== */
 
-if(sb){
-  sb.auth.onAuthStateChange(()=>{
-    load();
-  });
-}
-
+// 認証操作（新規作成・ログイン・引き継ぎ）は各処理で load() を実行する。
+// onAuthStateChange からも load() すると同じ初期化が重複実行され、
+// 公式ギフト準備が複数回走ってエラー画面が重なることがあるため、
+// ここでは自動ロードを行わない。
 applyTheme();
 load();
