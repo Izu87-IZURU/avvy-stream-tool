@@ -438,14 +438,13 @@ function customManager(project){
       // カウントを保存
       state.itemCounts[key]=next;
 
-      // 画面上の回数だけ更新
+      // モーダルは閉じず、回数だけ画面上で更新
       const countSpan=b.querySelector('span');
 
       if(countSpan){
         countSpan.textContent=`${next}回`;
       }
 
-      // チェック状態にする
       b.classList.add('checked');
     };
   });
@@ -502,18 +501,81 @@ function customManager(project){
       .filter(k=>k.startsWith(`custom:${project.id}:`))
       .forEach(k=>delete state.itemCounts[k]);
 
-    // 現在のモーダルを閉じる
     m.remove();
 
-    // リセット後の状態で開き直す
     customManager(project);
 
     toast('カスタム耐久をリセットしました');
   };
 
   return m;
-}const m=modal(`<h2>✨ 新しいカスタム耐久</h2><div class="form"><label>耐久名</label><input id="pn" placeholder="例：コメント耐久"><label>目標数</label><input id="pg" type="number" min="1" value="50"><div class="row"><button class="primary" id="ok">作成</button><button class="secondary" id="cancel">キャンセル</button></div></div>`);m.querySelector('#cancel').onclick=()=>m.remove();m.querySelector('#ok').onclick=async()=>{const name=m.querySelector('#pn').value.trim()||'カスタム耐久',goal=Number(m.querySelector('#pg').value)||50;const {error}=await sb.from('endurance_projects').insert({user_id:state.appUserId,type:'custom',name,goal,current:0});if(error)toast(error.message);else{m.remove();await load();toast('カスタム耐久を作成しました')}}}
-async function saveThemeMode(mode){const {error}=await sb.from('profiles').update({theme_mode:mode,updated_at:new Date().toISOString()}).eq('id',state.appUserId);if(error)toast(error.message);else{state.themeMode=mode;applyTheme();render();toast(mode==='dark'?'ダークモードにしました':'ホワイトモードにしました')}}
+}
+
+function newCustom(){
+  const m=modal(`
+    <h2>✨ 新しいカスタム耐久</h2>
+    <div class="form">
+      <label>耐久名</label>
+      <input id="pn" placeholder="例：コメント耐久">
+
+      <label>目標数</label>
+      <input id="pg" type="number" min="1" value="50">
+
+      <div class="row">
+        <button class="primary" id="ok" type="button">作成</button>
+        <button class="secondary" id="cancel" type="button">キャンセル</button>
+      </div>
+    </div>
+  `);
+
+  m.querySelector('#cancel').onclick=()=>{
+    m.remove();
+  };
+
+  m.querySelector('#ok').onclick=async()=>{
+    const name=m.querySelector('#pn').value.trim()||'カスタム耐久';
+    const goal=Number(m.querySelector('#pg').value)||50;
+
+    const {error}=await sb
+      .from('endurance_projects')
+      .insert({
+        user_id:state.appUserId,
+        type:'custom',
+        name,
+        goal,
+        current:0
+      });
+
+    if(error){
+      toast(error.message);
+      return;
+    }
+
+    m.remove();
+    await load();
+    toast('カスタム耐久を作成しました');
+  };
+}
+
+async function saveThemeMode(mode){
+  const {error}=await sb
+    .from('profiles')
+    .update({
+      theme_mode:mode,
+      updated_at:new Date().toISOString()
+    })
+    .eq('id',state.appUserId);
+
+  if(error){
+    toast(error.message);
+  }else{
+    state.themeMode=mode;
+    applyTheme();
+    render();
+    toast(mode==='dark'?'ダークモードにしました':'ホワイトモードにしました');
+  }
+}
+const {error}=await sb.from('profiles').update({theme_mode:mode,updated_at:new Date().toISOString()}).eq('id',state.appUserId);if(error)toast(error.message);else{state.themeMode=mode;applyTheme();render();toast(mode==='dark'?'ダークモードにしました':'ホワイトモードにしました')}}
 function bind(){
   document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;render()});
   document.querySelectorAll('[data-jump]').forEach(b=>b.onclick=()=>{state.tab=b.dataset.jump;render()});
