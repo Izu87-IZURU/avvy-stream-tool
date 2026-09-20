@@ -409,6 +409,7 @@ function customManager(project){
   };
 
   // 項目をタップして＋1
+  // モーダルは閉じず、回数だけその場で更新
   m.querySelectorAll('[data-custom-item]').forEach(b=>{
     b.onclick=async()=>{
       const itemId=b.dataset.customItem;
@@ -435,10 +436,8 @@ function customManager(project){
         return;
       }
 
-      // カウントを保存
       state.itemCounts[key]=next;
 
-      // モーダルは閉じず、回数だけ画面上で更新
       const countSpan=b.querySelector('span');
 
       if(countSpan){
@@ -514,6 +513,7 @@ function customManager(project){
 function newCustom(){
   const m=modal(`
     <h2>✨ 新しいカスタム耐久</h2>
+
     <div class="form">
       <label>耐久名</label>
       <input id="pn" placeholder="例：コメント耐久">
@@ -533,8 +533,11 @@ function newCustom(){
   };
 
   m.querySelector('#ok').onclick=async()=>{
-    const name=m.querySelector('#pn').value.trim()||'カスタム耐久';
-    const goal=Number(m.querySelector('#pg').value)||50;
+    const name=
+      m.querySelector('#pn').value.trim()||'カスタム耐久';
+
+    const goal=
+      Number(m.querySelector('#pg').value)||50;
 
     const {error}=await sb
       .from('endurance_projects')
@@ -552,7 +555,9 @@ function newCustom(){
     }
 
     m.remove();
+
     await load();
+
     toast('カスタム耐久を作成しました');
   };
 }
@@ -572,32 +577,209 @@ async function saveThemeMode(mode){
     state.themeMode=mode;
     applyTheme();
     render();
-    toast(mode==='dark'?'ダークモードにしました':'ホワイトモードにしました');
+
+    toast(
+      mode==='dark'
+        ? 'ダークモードにしました'
+        : 'ホワイトモードにしました'
+    );
   }
 }
-const {error}=await sb.from('profiles').update({theme_mode:mode,updated_at:new Date().toISOString()}).eq('id',state.appUserId);if(error)toast(error.message);else{state.themeMode=mode;applyTheme();render();toast(mode==='dark'?'ダークモードにしました':'ホワイトモードにしました')}}
+
 function bind(){
-  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;render()});
-  document.querySelectorAll('[data-jump]').forEach(b=>b.onclick=()=>{state.tab=b.dataset.jump;render()});
-  $('#quickSettings')?.addEventListener('click',quickSettings);
-  $('#openAppearance')?.addEventListener('click',quickSettings);
-  document.querySelectorAll('[data-theme-mode]').forEach(b=>b.onclick=()=>saveThemeMode(b.dataset.themeMode));
-  $('#startNewUser')?.addEventListener('click',startNewUser);
-  $('#takeoverUser')?.addEventListener('click',takeoverUser);
-  $('#logout')?.addEventListener('click',signOut);
-  $('#copyUserCode')?.addEventListener('click',async()=>{const code=state.appUser?.user_code;if(!code)return;try{await navigator.clipboard.writeText(code);toast('ユーザーコードをコピーしました')}catch(error){console.error(error);prompt('ユーザーコードをコピーしてください',code)}});
-  document.querySelectorAll('[data-gift]').forEach(b=>b.onclick=()=>incrementGift(b.dataset.gift));
-  document.querySelectorAll('[data-reset-coin]').forEach(b=>b.onclick=()=>resetCoin(b.dataset.resetCoin));
-  document.querySelectorAll('[data-item-cat]').forEach(b=>b.onclick=()=>incrementItem(b.dataset.itemCat,b.dataset.itemKey));
-  document.querySelectorAll('[data-reset-category]').forEach(b=>b.onclick=()=>resetCategory(b.dataset.resetCategory));
-  $('#eventSettings')?.addEventListener('click',eventSettingsModal);
-  document.querySelectorAll('[data-reset-source]').forEach(b=>b.onclick=()=>resetCoin(b.dataset.resetCoin,'official'));
-  document.querySelectorAll('[data-reset-event]').forEach(b=>b.onclick=()=>resetEvent(b.dataset.resetEvent));
-  $('#newOrigift')?.addEventListener('click',newOrigift);
-  document.querySelectorAll('[data-del-origift]').forEach(b=>b.onclick=async()=>{if(!confirm('このオリギフを削除しますか？'))return;await sb.from('gift_definitions').delete().eq('id',b.dataset.delOrigift).eq('user_id',state.appUserId);await load()});
-  $('#resetOrigift')?.addEventListener('click',async()=>{const ids=state.gifts.filter(g=>g.source==='original').map(g=>g.id);if(ids.length)await sb.from('gift_counts').delete().eq('user_id',state.appUserId).in('gift_id',ids);await load();toast('オリギフをリセットしました')});
-  $('#newCustom')?.addEventListener('click',newCustom);
-  document.querySelectorAll('[data-open-custom]').forEach(b=>b.onclick=()=>{const project=state.customProjects.find(p=>p.id===b.dataset.openCustom);if(project)customManager(project)});
-  document.querySelectorAll('[data-manage-custom]').forEach(b=>b.onclick=()=>{const project=state.customProjects.find(p=>p.id===b.dataset.manageCustom);if(project)customManager(project)});
+  document.querySelectorAll('.tabs button').forEach(b=>{
+    b.onclick=()=>{
+      state.tab=b.dataset.tab;
+      render();
+    };
+  });
+
+  document.querySelectorAll('[data-jump]').forEach(b=>{
+    b.onclick=()=>{
+      state.tab=b.dataset.jump;
+      render();
+    };
+  });
+
+  $('#quickSettings')?.addEventListener(
+    'click',
+    quickSettings
+  );
+
+  $('#openAppearance')?.addEventListener(
+    'click',
+    quickSettings
+  );
+
+  document.querySelectorAll('[data-theme-mode]').forEach(b=>{
+    b.onclick=()=>{
+      saveThemeMode(b.dataset.themeMode);
+    };
+  });
+
+  $('#startNewUser')?.addEventListener(
+    'click',
+    startNewUser
+  );
+
+  $('#takeoverUser')?.addEventListener(
+    'click',
+    takeoverUser
+  );
+
+  $('#logout')?.addEventListener(
+    'click',
+    signOut
+  );
+
+  $('#copyUserCode')?.addEventListener(
+    'click',
+    async()=>{
+      const code=state.appUser?.user_code;
+
+      if(!code)return;
+
+      try{
+        await navigator.clipboard.writeText(code);
+        toast('ユーザーコードをコピーしました');
+      }catch(error){
+        console.error(error);
+        prompt(
+          'ユーザーコードをコピーしてください',
+          code
+        );
+      }
+    }
+  );
+
+  document.querySelectorAll('[data-gift]').forEach(b=>{
+    b.onclick=()=>{
+      incrementGift(b.dataset.gift);
+    };
+  });
+
+  document.querySelectorAll('[data-reset-coin]').forEach(b=>{
+    b.onclick=()=>{
+      resetCoin(b.dataset.resetCoin);
+    };
+  });
+
+  document.querySelectorAll('[data-item-cat]').forEach(b=>{
+    b.onclick=()=>{
+      incrementItem(
+        b.dataset.itemCat,
+        b.dataset.itemKey
+      );
+    };
+  });
+
+  document.querySelectorAll('[data-reset-category]').forEach(b=>{
+    b.onclick=()=>{
+      resetCategory(b.dataset.resetCategory);
+    };
+  });
+
+  $('#eventSettings')?.addEventListener(
+    'click',
+    eventSettingsModal
+  );
+
+  document.querySelectorAll('[data-reset-source]').forEach(b=>{
+    b.onclick=()=>{
+      resetCoin(
+        b.dataset.resetCoin,
+        'official'
+      );
+    };
+  });
+
+  document.querySelectorAll('[data-reset-event]').forEach(b=>{
+    b.onclick=()=>{
+      resetEvent(
+        b.dataset.resetEvent
+      );
+    };
+  });
+
+  $('#newOrigift')?.addEventListener(
+    'click',
+    newOrigift
+  );
+
+  document.querySelectorAll('[data-del-origift]').forEach(b=>{
+    b.onclick=async()=>{
+      if(!confirm('このオリギフを削除しますか？')){
+        return;
+      }
+
+      await sb
+        .from('gift_definitions')
+        .delete()
+        .eq('id',b.dataset.delOrigift)
+        .eq('user_id',state.appUserId);
+
+      await load();
+    };
+  });
+
+  $('#resetOrigift')?.addEventListener(
+    'click',
+    async()=>{
+      const ids=state.gifts
+        .filter(g=>g.source==='original')
+        .map(g=>g.id);
+
+      if(ids.length){
+        await sb
+          .from('gift_counts')
+          .delete()
+          .eq('user_id',state.appUserId)
+          .in('gift_id',ids);
+      }
+
+      await load();
+
+      toast('オリギフをリセットしました');
+    }
+  );
+
+  $('#newCustom')?.addEventListener(
+    'click',
+    newCustom
+  );
+
+  document.querySelectorAll('[data-open-custom]').forEach(b=>{
+    b.onclick=()=>{
+      const project=
+        state.customProjects.find(
+          p=>p.id===b.dataset.openCustom
+        );
+
+      if(project){
+        customManager(project);
+      }
+    };
+  });
+
+  document.querySelectorAll('[data-manage-custom]').forEach(b=>{
+    b.onclick=()=>{
+      const project=
+        state.customProjects.find(
+          p=>p.id===b.dataset.manageCustom
+        );
+
+      if(project){
+        customManager(project);
+      }
+    };
+  });
 }
-if(sb)sb.auth.onAuthStateChange(()=>load());applyTheme();load();
+
+if(sb){
+  sb.auth.onAuthStateChange(()=>{
+    load();
+  });
+}
+
+applyTheme();
+load();
