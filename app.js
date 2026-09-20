@@ -733,7 +733,8 @@ function bind(){
     'click',
     quickSettings
   );
-    $('#saveDisplayName')?.addEventListener(
+
+  $('#saveDisplayName')?.addEventListener(
     'click',
     async()=>{
       const input=$('#newDisplayName');
@@ -776,7 +777,6 @@ function bind(){
   );
 
   document.querySelectorAll('[data-theme-mode]').forEach(b=>{
-    b.onclick=()=>{
       saveThemeMode(b.dataset.themeMode);
     };
   });
