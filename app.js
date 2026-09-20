@@ -866,7 +866,7 @@ function home(){
     <div class="hero">
 
       <h1>
-        配信の耐久を、かわいく・かんたんに。
+        耐久配信のカウントを、かんたんに。
       </h1>
 
       <p>
@@ -1700,6 +1700,150 @@ function resetEvent(event){
 ================================================== */
 
 function choicePage(
+  title,
+  icon,
+  category,
+  items
+){
+
+  // 各項目の個別カウント
+  const vals =
+    items.map(
+      i =>
+        Number(
+          state.itemCounts[
+            category + ':' + i
+          ] || 0
+        )
+    );
+
+  // 1回以上カウントされた「種類」の数
+  const achieved =
+    vals.filter(
+      count => count > 0
+    ).length;
+
+  // 全種類数
+  const total =
+    items.length;
+
+  // 未達成の種類数
+  const remaining =
+    Math.max(
+      0,
+      total - achieved
+    );
+
+  // 種類ベースの進捗率
+  const pct =
+    total > 0
+      ? Math.min(
+          100,
+          (achieved / total) * 100
+        )
+      : 0;
+
+  return `
+    <div class="card">
+
+      <div class="section-head">
+
+        <div>
+
+          <h2>
+            ${icon} ${title}
+          </h2>
+
+          <p class="top-note">
+            項目をタップすると＋1
+          </p>
+
+        </div>
+
+        <button
+          class="danger"
+          data-reset-category="${esc(category)}"
+        >
+          リセット
+        </button>
+
+      </div>
+
+      <!-- 種類ベースの達成状況 -->
+      <div
+        class="counterline"
+        style="margin-bottom:8px"
+      >
+        達成 ${achieved} / ${total}種類
+        ・残り ${remaining}種類
+      </div>
+
+      <div class="progress">
+
+        <i
+          style="
+            width:${pct}%
+          "
+        ></i>
+
+      </div>
+
+      ${
+        achieved === total
+          ?
+          `
+            <div class="complete-badge">
+              🎉 全${esc(title)}達成！
+            </div>
+          `
+          :
+          ''
+      }
+
+      <!-- 個別項目 -->
+      <div
+        class="choice-grid"
+        style="margin-top:14px"
+      >
+
+        ${
+          items.map(
+            (x, i) => {
+
+              const count =
+                vals[i];
+
+              return `
+                <button
+                  class="choice-btn ${
+                    count > 0
+                      ? 'checked'
+                      : ''
+                  }"
+                  data-item-cat="${esc(category)}"
+                  data-item-key="${esc(x)}"
+                >
+
+                  <strong>
+                    ${esc(x)}
+                  </strong>
+
+                  <span>
+                    ${count}回
+                  </span>
+
+                </button>
+              `;
+
+            }
+          ).join('')
+        }
+
+      </div>
+
+    </div>
+  `;
+}
 
 /* ==================================================
    オリギフ
