@@ -187,7 +187,6 @@ const EVENT_KEYS=Object.keys(EVENT_GIFTS);
 let state={
   tab:'home',
   user:null,
-  authUserId:null,
   appUser:null,
   appUserId:null,
   profile:null,
@@ -306,7 +305,7 @@ async function loadCustomItems(){
   });
 }
 
-async function ensureOfficialGifts(authUserId,appUserId){
+async function ensureOfficialGifts(definitionUserId, countUserId){
   const all=[
     ...OFFICIAL_GIFTS.map((g,i)=>({
       ...g, source:'official', event_key:null, sort_order:i
@@ -317,7 +316,7 @@ async function ensureOfficialGifts(authUserId,appUserId){
       }))
     )
   ].map(g=>({
-    user_id:authUserId,
+    user_id:definitionUserId,
     name:g.name,
     coin:g.coin,
     emoji:'🎁',
@@ -333,7 +332,7 @@ async function ensureOfficialGifts(authUserId,appUserId){
   const {data:existingAll,error:existingError}=await sb
     .from('gift_definitions')
     .select('id,name,coin,source,event_key')
-    .eq('user_id',authUserId);
+    .eq('user_id',definitionUserId);
   if(existingError)throw existingError;
 
   const existingOfficial=(existingAll||[]).filter(g=>g.source==='official');
@@ -354,14 +353,14 @@ async function ensureOfficialGifts(authUserId,appUserId){
     const {data:counts,error:countError}=await sb
       .from('gift_counts')
       .select('gift_id,count')
-      .eq('user_id',appUserId)
+      .eq('user_id',countUserId)
       .in('gift_id',[keep.id,...ids]);
     if(countError)throw countError;
 
     const total=(counts||[]).reduce((sum,x)=>sum+Number(x.count||0),0);
     if(total>0){
       const {error}=await sb.from('gift_counts').upsert({
-        user_id:authUserId,
+        user_id:countUserId,
         gift_id:keep.id,
         count:total,
         updated_at:new Date().toISOString()
@@ -371,7 +370,7 @@ async function ensureOfficialGifts(authUserId,appUserId){
 
     if(ids.length){
       const {error}=await sb.from('gift_counts').delete()
-        .eq('user_id',appUserId).in('gift_id',ids);
+        .eq('user_id',countUserId).in('gift_id',ids);
       if(error)throw error;
       duplicateIds.push(...ids);
     }
@@ -379,14 +378,14 @@ async function ensureOfficialGifts(authUserId,appUserId){
 
   if(duplicateIds.length){
     const {error}=await sb.from('gift_definitions').delete()
-      .eq('user_id',authUserId).in('id',duplicateIds);
+      .eq('user_id',definitionUserId).in('id',duplicateIds);
     if(error)throw error;
   }
 
   const {data:existing,error:reloadError}=await sb
     .from('gift_definitions')
     .select('id,name,coin,source,event_key')
-    .eq('user_id',authUserId);
+    .eq('user_id',definitionUserId);
   if(reloadError)throw reloadError;
 
   const keySet=new Set((existing||[]).map(g=>
@@ -418,7 +417,6 @@ async function load(){
   }=await sb.auth.getUser();
 
   state.user=user;
-  state.authUserId=user?.id||null;
 
   if(user){
     const {
@@ -472,7 +470,7 @@ async function load(){
 
     try{
       await ensureOfficialGifts(
-        state.authUserId,
+        state.user.id,
         state.appUserId
       );
     }catch(giftSetupError){
@@ -507,7 +505,7 @@ async function load(){
       sb
         .from('gift_definitions')
         .select('*')
-        .eq('user_id',state.authUserId)
+        .eq('user_id',state.user.id)
         .order('coin')
         .order('source')
         .order('sort_order'),
@@ -804,7 +802,6 @@ async function signOut(){
   await sb.auth.signOut();
 
   state.user=null;
-  state.authUserId=null;
   state.appUser=null;
   state.appUserId=null;
   state.profile=null;
@@ -961,7 +958,6 @@ function home(){
 
       <div class="card">
         <h3>🎁 ギフト</h3>
-r
         <div class="big">
           ${total}
         </div>
@@ -2036,7 +2032,7 @@ function newOrigift(){
         await sb
           .from('gift_definitions')
           .insert({
-            user_id:state.authUserId,
+            user_id:state.appUserId,
             name,
             coin,
             emoji,
@@ -3035,7 +3031,7 @@ function giftManager(){
         await sb
           .from('gift_definitions')
           .insert({
-            user_id:state.authUserId,
+            user_id:state.appUserId,
             name,
             coin,
             emoji,
@@ -3908,7 +3904,7 @@ function bind(){
             )
             .eq(
               'user_id',
-              state.authUserId
+              state.appUserId
             );
 
           await load();
