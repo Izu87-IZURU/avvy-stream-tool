@@ -972,7 +972,6 @@ function home(){
 
       <div class="card">
         <h3>🎁 ギフト</h3>
-
         <div class="big">
           ${total}
         </div>
