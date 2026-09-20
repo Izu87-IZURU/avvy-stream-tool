@@ -307,8 +307,12 @@ async function loadCustomItems(){
 }
 
 async function ensureOfficialGifts(authUserId, appUserId){
-  if(!authUserId) throw new Error('認証ユーザーIDを取得できませんでした');
-  if(!appUserId) throw new Error('アプリユーザーIDを取得できませんでした');
+  if(!authUserId){
+    throw new Error('認証ユーザーIDを取得できませんでした。');
+  }
+  if(!appUserId){
+    throw new Error('アプリユーザーIDを取得できませんでした。');
+  }
 
   const all=[
     ...OFFICIAL_GIFTS.map((g,i)=>({
@@ -474,7 +478,7 @@ async function loadInternal(){
 
     try{
       await ensureOfficialGifts(
-        user.id,
+        state.user.id,
         state.appUserId
       );
     }catch(giftSetupError){
@@ -509,7 +513,7 @@ async function loadInternal(){
       sb
         .from('gift_definitions')
         .select('*')
-        .eq('user_id',user.id)
+        .eq('user_id',state.user.id)
         .order('coin')
         .order('source')
         .order('sort_order'),
