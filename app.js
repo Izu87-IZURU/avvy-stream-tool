@@ -475,19 +475,23 @@ async function load(){
         state.authUserId,
         state.appUserId
       );
-    }catch(giftSetupError){
-      console.error(
-        '公式ギフト初期化エラー:',
-        giftSetupError
-      );
-      state.loading=false;
-      render();
-      toast(
-        '公式ギフトの準備に失敗しました。\n'+
-        (giftSetupError?.message||String(giftSetupError))
-      );
-      return false;
-    }
+   }catch(giftSetupError){
+  console.error(
+    '公式ギフト初期化エラー:',
+    giftSetupError
+  );
+
+  state.loading=false;
+  render();
+
+  alert(
+    '公式ギフトの準備に失敗しました。\n\n' +
+    'エラー内容：\n' +
+    (giftSetupError?.message || String(giftSetupError))
+  );
+
+  return;
+}
 
     const [
       pr,
