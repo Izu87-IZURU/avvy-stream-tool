@@ -307,27 +307,13 @@ async function loadCustomItems(){
 
 async function ensureOfficialGifts(userId){
   const all=[
-    ...OFFICIAL_GIFTS.flatMap(
-      (g,i)=>[
-        {
-          ...g,
-          source:'official',
-          event_key:null,
-          sort_order:i
-        }
-      ]
-    ),
-
-    ...Object.entries(EVENT_GIFTS).flatMap(
-      ([event,gs],ei)=>
-        gs.map(
-          (g,i)=>({
-            ...g,
-            source:'event',
-            event_key:event,
-            sort_order:i
-          })
-        )
+    ...OFFICIAL_GIFTS.map((g,i)=>({
+      ...g, source:'official', event_key:null, sort_order:i
+    })),
+    ...Object.entries(EVENT_GIFTS).flatMap(([event,gs])=>
+      gs.map((g,i)=>({
+        ...g, source:'event', event_key:event, sort_order:i
+      }))
     )
   ].map(g=>({
     user_id:userId,
@@ -343,116 +329,76 @@ async function ensureOfficialGifts(userId){
     variant:g.variant||null
   }));
 
-  const {
-    data:existingAll
-  }=await sb
+  const {data:existingAll,error:existingError}=await sb
     .from('gift_definitions')
-    .select(
-      'id,name,coin,source,event_key'
-    )
+    .select('id,name,coin,source,event_key,group_name,mascot,variant')
     .eq('user_id',userId);
+  if(existingError)throw existingError;
 
-  const existingOfficial=
-    (existingAll||[])
-      .filter(g=>g.source==='official');
-
+  const existingOfficial=(existingAll||[]).filter(g=>g.source==='official');
   const groups=new Map();
 
   for(const g of existingOfficial){
-    const key=`${g.name}|${g.coin}`;
-
-    if(!groups.has(key)){
-      groups.set(key,[]);
-    }
-
+    const key=`${g.name}|${g.coin}|${g.group_name||''}|${g.mascot||''}|${g.variant||''}`;
+    if(!groups.has(key))groups.set(key,[]);
     groups.get(key).push(g);
   }
 
   const duplicateIds=[];
-
   for(const rows of groups.values()){
     if(rows.length<=1)continue;
-
     const keep=rows[0];
-    const dup=rows.slice(1);
-    const ids=dup.map(x=>x.id);
+    const ids=rows.slice(1).map(x=>x.id);
 
-    const {
-      data:counts
-    }=await sb
+    const {data:counts,error:countError}=await sb
       .from('gift_counts')
       .select('gift_id,count')
       .eq('user_id',userId)
-      .in(
-        'gift_id',
-        [keep.id,...ids]
-      );
+      .in('gift_id',[keep.id,...ids]);
+    if(countError)throw countError;
 
-    const total=(counts||[]).reduce(
-      (sum,x)=>sum+Number(x.count||0),
-      0
-    );
-
+    const total=(counts||[]).reduce((sum,x)=>sum+Number(x.count||0),0);
     if(total>0){
-      await sb
-        .from('gift_counts')
-        .upsert(
-          {
-            user_id:userId,
-            gift_id:keep.id,
-            count:total,
-            updated_at:new Date().toISOString()
-          },
-          {
-            onConflict:'user_id,gift_id'
-          }
-        );
+      const {error}=await sb.from('gift_counts').upsert({
+        user_id:userId,
+        gift_id:keep.id,
+        count:total,
+        updated_at:new Date().toISOString()
+      },{onConflict:'user_id,gift_id'});
+      if(error)throw error;
     }
 
     if(ids.length){
-      await sb
-        .from('gift_counts')
-        .delete()
-        .eq('user_id',userId)
-        .in('gift_id',ids);
+      const {error}=await sb.from('gift_counts').delete()
+        .eq('user_id',userId).in('gift_id',ids);
+      if(error)throw error;
+      duplicateIds.push(...ids);
     }
-
-    duplicateIds.push(...ids);
   }
 
   if(duplicateIds.length){
-    await sb
-      .from('gift_definitions')
-      .delete()
-      .eq('user_id',userId)
-      .in('id',duplicateIds);
+    const {error}=await sb.from('gift_definitions').delete()
+      .eq('user_id',userId).in('id',duplicateIds);
+    if(error)throw error;
   }
 
-  const {
-    data:existing
-  }=await sb
+  const {data:existing,error:reloadError}=await sb
     .from('gift_definitions')
-    .select(
-      'id,name,coin,source,event_key'
-    )
+    .select('id,name,coin,source,event_key,group_name,mascot,variant')
     .eq('user_id',userId);
+  if(reloadError)throw reloadError;
 
-  const keySet=new Set(
-    (existing||[]).map(
-      g=>`${g.source||'original'}|${g.event_key||''}|${g.name}|${g.coin}`
-    )
-  );
+  const keySet=new Set((existing||[]).map(g=>
+    `${g.source||'original'}|${g.event_key||''}|${g.name}|${g.coin}|${g.group_name||''}|${g.mascot||''}|${g.variant||''}`
+  ));
 
-  const missing=all.filter(
-    g=>!keySet.has(
-      `${g.source}|${g.event_key||''}|${g.name}|${g.coin}`
-    )
-  );
+  const missing=all.filter(g=>!keySet.has(
+    `${g.source}|${g.event_key||''}|${g.name}|${g.coin}|${g.group_name||''}|${g.mascot||''}|${g.variant||''}`
+  ));
 
   if(missing.length){
-    await sb
-      .from('gift_definitions')
-      .insert(missing);
+    const {error}=await sb.from('gift_definitions').insert(missing);
+    if(error)throw error;
   }
 }
 
@@ -522,9 +468,22 @@ async function load(){
       }
     }
 
-    await ensureOfficialGifts(
-      state.appUserId
-    );
+    try{
+      await ensureOfficialGifts(
+        state.appUserId
+      );
+    }catch(giftSetupError){
+      console.error(
+        '公式ギフト初期化エラー:',
+        giftSetupError
+      );
+      state.loading=false;
+      render();
+      toast(
+        '公式ギフトの準備に失敗しました。時間をおいて再読み込みしてください。'
+      );
+      return;
+    }
 
     const [
       pr,
@@ -998,7 +957,6 @@ function home(){
 
       <div class="card">
         <h3>🎁 ギフト</h3>
-
         <div class="big">
           ${total}
         </div>
@@ -2181,6 +2139,13 @@ function custom(){
                             項目管理
                           </button>
 
+                          <button
+                            class="danger"
+                            data-delete-custom="${p.id}"
+                          >
+                            耐久を削除
+                          </button>
+
                         </div>
 
                       </div>
@@ -2428,12 +2393,23 @@ function settings(){
 
                         </div>
 
-                        <button
-                          class="secondary"
-                          data-manage-custom="${p.id}"
-                        >
-                          項目管理
-                        </button>
+                        <div class="row">
+
+                          <button
+                            class="secondary"
+                            data-manage-custom="${p.id}"
+                          >
+                            項目管理
+                          </button>
+
+                          <button
+                            class="danger"
+                            data-delete-custom="${p.id}"
+                          >
+                            耐久を削除
+                          </button>
+
+                        </div>
 
                       </div>
 
@@ -3222,13 +3198,25 @@ function customManager(project){
         目標 ${Number(project.goal)||0}
       </span>
 
-      <button
-        class="danger"
-        id="resetCustomProject"
-        type="button"
-      >
-        リセット
-      </button>
+      <div class="row">
+
+        <button
+          class="danger"
+          id="resetCustomProject"
+          type="button"
+        >
+          リセット
+        </button>
+
+        <button
+          class="danger"
+          id="deleteCustomProject"
+          type="button"
+        >
+          この耐久を削除
+        </button>
+
+      </div>
 
     </div>
   `);
@@ -3451,7 +3439,72 @@ function customManager(project){
     );
   };
 
+  m.querySelector(
+    '#deleteCustomProject'
+  ).onclick=async()=>{
+    m.remove();
+    await deleteCustomProject(project);
+  };
+
   return m;
+}
+
+
+async function deleteCustomProject(project){
+  if(!sb||!state.appUserId||!project?.id)return;
+
+  if(!confirm(
+    `「${project.name}」を削除しますか？\n\n`+
+    'この耐久と、登録されている項目・各項目のカウントをすべて削除します。\n'+
+    'この操作は元に戻せません。'
+  )){
+    return;
+  }
+
+  try{
+    const projectId=project.id;
+    const category=`custom:${projectId}`;
+
+    const {error:countError}=await sb
+      .from('endurance_item_counts')
+      .delete()
+      .eq('user_id',state.appUserId)
+      .eq('category',category);
+    if(countError)throw countError;
+
+    const {error:itemError}=await sb
+      .from('custom_items')
+      .delete()
+      .eq('user_id',state.appUserId)
+      .eq('project_id',projectId);
+    if(itemError)throw itemError;
+
+    const {error:projectError}=await sb
+      .from('endurance_projects')
+      .delete()
+      .eq('user_id',state.appUserId)
+      .eq('id',projectId)
+      .eq('type','custom');
+    if(projectError)throw projectError;
+
+    Object.keys(state.itemCounts||{})
+      .filter(key=>key.startsWith(`${category}:`))
+      .forEach(key=>delete state.itemCounts[key]);
+
+    state.customProjects=state.customProjects.filter(
+      p=>String(p.id)!==String(projectId)
+    );
+
+    Object.keys(state.customItems||{})
+      .filter(key=>key.startsWith(`${projectId}:`))
+      .forEach(key=>delete state.customItems[key]);
+
+    render();
+    toast(`「${project.name}」を削除しました`);
+  }catch(error){
+    console.error('カスタム耐久削除エラー:',error);
+    toast(`カスタム耐久の削除に失敗しました：${error?.message||error}`);
+  }
 }
 
 function newCustom(){
@@ -3936,6 +3989,27 @@ function bind(){
         };
       }
     );
+
+  document
+    .querySelectorAll(
+      '[data-delete-custom]'
+    )
+    .forEach(
+      b=>{
+        b.onclick=async()=>{
+          const project=
+            state.customProjects.find(
+              p=>
+                String(p.id)===
+                String(b.dataset.deleteCustom)
+            );
+
+          if(project){
+            await deleteCustomProject(project);
+          }
+        };
+      }
+    );
 }
 
 
@@ -3945,7 +4019,9 @@ function bind(){
 
 if(sb){
   sb.auth.onAuthStateChange(()=>{
-    load();
+    // 初期読み込みや新規ユーザー作成時は、それぞれの処理から
+    // load() を呼ぶため、ここでは二重読み込みを起こさないようにする。
+    render();
   });
 }
 
