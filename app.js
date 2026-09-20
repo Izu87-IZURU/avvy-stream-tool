@@ -187,6 +187,7 @@ const EVENT_KEYS=Object.keys(EVENT_GIFTS);
 let state={
   tab:'home',
   user:null,
+  authUserId:null,
   appUser:null,
   appUserId:null,
   profile:null,
@@ -305,7 +306,7 @@ async function loadCustomItems(){
   });
 }
 
-async function ensureOfficialGifts(definitionUserId, countUserId){
+async function ensureOfficialGifts(giftDefinitionUserId, appUserId){
   const all=[
     ...OFFICIAL_GIFTS.map((g,i)=>({
       ...g, source:'official', event_key:null, sort_order:i
@@ -316,7 +317,7 @@ async function ensureOfficialGifts(definitionUserId, countUserId){
       }))
     )
   ].map(g=>({
-    user_id:definitionUserId,
+    user_id:giftDefinitionUserId,
     name:g.name,
     coin:g.coin,
     emoji:'🎁',
@@ -332,7 +333,7 @@ async function ensureOfficialGifts(definitionUserId, countUserId){
   const {data:existingAll,error:existingError}=await sb
     .from('gift_definitions')
     .select('id,name,coin,source,event_key')
-    .eq('user_id',definitionUserId);
+    .eq('user_id',giftDefinitionUserId);
   if(existingError)throw existingError;
 
   const existingOfficial=(existingAll||[]).filter(g=>g.source==='official');
@@ -353,14 +354,14 @@ async function ensureOfficialGifts(definitionUserId, countUserId){
     const {data:counts,error:countError}=await sb
       .from('gift_counts')
       .select('gift_id,count')
-      .eq('user_id',countUserId)
+      .eq('user_id',appUserId)
       .in('gift_id',[keep.id,...ids]);
     if(countError)throw countError;
 
     const total=(counts||[]).reduce((sum,x)=>sum+Number(x.count||0),0);
     if(total>0){
       const {error}=await sb.from('gift_counts').upsert({
-        user_id:countUserId,
+        user_id:appUserId,
         gift_id:keep.id,
         count:total,
         updated_at:new Date().toISOString()
@@ -370,7 +371,7 @@ async function ensureOfficialGifts(definitionUserId, countUserId){
 
     if(ids.length){
       const {error}=await sb.from('gift_counts').delete()
-        .eq('user_id',countUserId).in('gift_id',ids);
+        .eq('user_id',appUserId).in('gift_id',ids);
       if(error)throw error;
       duplicateIds.push(...ids);
     }
@@ -378,14 +379,14 @@ async function ensureOfficialGifts(definitionUserId, countUserId){
 
   if(duplicateIds.length){
     const {error}=await sb.from('gift_definitions').delete()
-      .eq('user_id',definitionUserId).in('id',duplicateIds);
+      .eq('user_id',giftDefinitionUserId).in('id',duplicateIds);
     if(error)throw error;
   }
 
   const {data:existing,error:reloadError}=await sb
     .from('gift_definitions')
     .select('id,name,coin,source,event_key')
-    .eq('user_id',definitionUserId);
+    .eq('user_id',giftDefinitionUserId);
   if(reloadError)throw reloadError;
 
   const keySet=new Set((existing||[]).map(g=>
@@ -417,6 +418,7 @@ async function load(){
   }=await sb.auth.getUser();
 
   state.user=user;
+  state.authUserId=user?.id||null;
 
   if(user){
     const {
@@ -470,7 +472,7 @@ async function load(){
 
     try{
       await ensureOfficialGifts(
-        state.user.id,
+        state.authUserId,
         state.appUserId
       );
     }catch(giftSetupError){
@@ -481,9 +483,10 @@ async function load(){
       state.loading=false;
       render();
       toast(
-        '公式ギフトの準備に失敗しました。時間をおいて再読み込みしてください。'
+        '公式ギフトの準備に失敗しました。\n'+
+        (giftSetupError?.message||String(giftSetupError))
       );
-      return;
+      return false;
     }
 
     const [
@@ -505,7 +508,7 @@ async function load(){
       sb
         .from('gift_definitions')
         .select('*')
-        .eq('user_id',state.user.id)
+        .eq('user_id',state.authUserId)
         .order('coin')
         .order('source')
         .order('sort_order'),
@@ -604,6 +607,7 @@ async function load(){
     applyTheme();
 
   }else{
+    state.authUserId=null;
     state.appUser=null;
     state.appUserId=null;
     state.profile=null;
@@ -687,7 +691,13 @@ async function startNewUser(){
       );
     }
 
-    await load();
+    const loaded=await load();
+
+    if(loaded===false){
+      throw new Error(
+        '公式ギフトの準備に失敗しました。'
+      );
+    }
 
     if(!state.appUser?.user_code){
       throw new Error(
@@ -780,7 +790,13 @@ async function takeoverUser(){
       );
     }
 
-    await load();
+    const loaded=await load();
+
+    if(loaded===false){
+      throw new Error(
+        '公式ギフトの準備に失敗しました。'
+      );
+    }
 
     alert(
       'データを引き継ぎました！'
@@ -802,6 +818,7 @@ async function signOut(){
   await sb.auth.signOut();
 
   state.user=null;
+  state.authUserId=null;
   state.appUser=null;
   state.appUserId=null;
   state.profile=null;
@@ -2032,7 +2049,7 @@ function newOrigift(){
         await sb
           .from('gift_definitions')
           .insert({
-            user_id:state.appUserId,
+            user_id:state.authUserId,
             name,
             coin,
             emoji,
@@ -3031,7 +3048,7 @@ function giftManager(){
         await sb
           .from('gift_definitions')
           .insert({
-            user_id:state.appUserId,
+            user_id:state.authUserId,
             name,
             coin,
             emoji,
@@ -3904,7 +3921,7 @@ function bind(){
             )
             .eq(
               'user_id',
-              state.appUserId
+              state.authUserId
             );
 
           await load();
