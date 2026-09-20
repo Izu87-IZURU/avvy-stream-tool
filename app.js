@@ -307,13 +307,6 @@ async function loadCustomItems(){
 }
 
 async function ensureOfficialGifts(authUserId, appUserId){
-  if(!authUserId){
-    throw new Error('認証ユーザーIDを取得できませんでした。');
-  }
-  if(!appUserId){
-    throw new Error('アプリユーザーIDを取得できませんでした。');
-  }
-
   const all=[
     ...OFFICIAL_GIFTS.map((g,i)=>({
       ...g, source:'official', event_key:null, sort_order:i
@@ -478,7 +471,7 @@ async function loadInternal(){
 
     try{
       await ensureOfficialGifts(
-        state.user.id,
+        user.id,
         state.appUserId
       );
     }catch(giftSetupError){
@@ -513,7 +506,7 @@ async function loadInternal(){
       sb
         .from('gift_definitions')
         .select('*')
-        .eq('user_id',state.user.id)
+        .eq('user_id',user.id)
         .order('coin')
         .order('source')
         .order('sort_order'),
@@ -976,7 +969,6 @@ function home(){
 
       <div class="card">
         <h3>🎁 ギフト</h3>
-r
         <div class="big">
           ${total}
         </div>
