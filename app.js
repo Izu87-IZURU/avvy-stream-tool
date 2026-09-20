@@ -306,99 +306,108 @@ async function loadCustomItems(){
 }
 
 async function ensureOfficialGifts(userId){
-  const all=[
-    ...OFFICIAL_GIFTS.map((g,i)=>({
-      ...g, source:'official', event_key:null, sort_order:i
-    })),
-    ...Object.entries(EVENT_GIFTS).flatMap(([event,gs])=>
-      gs.map((g,i)=>({
-        ...g, source:'event', event_key:event, sort_order:i
-      }))
-    )
-  ].map(g=>({
+  if(!sb||!userId){
+    throw new Error('Supabaseまたはユーザー情報がありません。');
+  }
+
+  // まず公式ギフトだけを確実に登録します。
+  // イベントギフトの登録失敗で、通常ギフトまで0件になることを防ぎます。
+  const officialRows=OFFICIAL_GIFTS.map((g,i)=>({
     user_id:userId,
     name:g.name,
     coin:g.coin,
     emoji:'🎁',
     target:10,
-    sort_order:g.sort_order,
-    source:g.source,
-    event_key:g.event_key,
+    sort_order:i,
+    source:'official',
+    event_key:null,
     group_name:g.group||null,
     mascot:g.mascot||null,
     variant:g.variant||null
   }));
 
-  const {data:existingAll,error:existingError}=await sb
+  const {data:existing,error:existingError}=await sb
     .from('gift_definitions')
     .select('id,name,coin,source,event_key,group_name,mascot,variant')
     .eq('user_id',userId);
+
   if(existingError)throw existingError;
 
-  const existingOfficial=(existingAll||[]).filter(g=>g.source==='official');
-  const groups=new Map();
+  const keyOf=g=>
+    `${g.name}|${g.coin}|${g.group_name||g.group||''}|${g.mascot||''}|${g.variant||''}`;
 
-  for(const g of existingOfficial){
-    const key=`${g.name}|${g.coin}|${g.group_name||''}|${g.mascot||''}|${g.variant||''}`;
-    if(!groups.has(key))groups.set(key,[]);
-    groups.get(key).push(g);
+  const existingOfficialKeys=new Set(
+    (existing||[])
+      .filter(g=>g.source==='official')
+      .map(keyOf)
+  );
+
+  const missingOfficial=officialRows.filter(
+    g=>!existingOfficialKeys.has(keyOf(g))
+  );
+
+  if(missingOfficial.length){
+    const {error}=await sb
+      .from('gift_definitions')
+      .insert(missingOfficial);
+
+    if(error){
+      throw new Error(
+        `公式ギフトの登録に失敗しました：${error.message||error}`
+      );
+    }
   }
 
-  const duplicateIds=[];
-  for(const rows of groups.values()){
-    if(rows.length<=1)continue;
-    const keep=rows[0];
-    const ids=rows.slice(1).map(x=>x.id);
+  // イベントギフトは通常ギフトとは分離して同期します。
+  // イベント側で問題があっても、通常ギフトの表示は止めません。
+  try{
+    const currentEventKeys=new Set(
+      (existing||[])
+        .filter(g=>g.source==='event')
+        .map(g=>
+          `${g.event_key||''}|${g.name}|${g.coin}|${g.group_name||''}|${g.mascot||''}|${g.variant||''}`
+        )
+    );
 
-    const {data:counts,error:countError}=await sb
-      .from('gift_counts')
-      .select('gift_id,count')
-      .eq('user_id',userId)
-      .in('gift_id',[keep.id,...ids]);
-    if(countError)throw countError;
-
-    const total=(counts||[]).reduce((sum,x)=>sum+Number(x.count||0),0);
-    if(total>0){
-      const {error}=await sb.from('gift_counts').upsert({
+    const eventRows=Object.entries(EVENT_GIFTS).flatMap(
+      ([event,gs])=>gs.map((g,i)=>({
         user_id:userId,
-        gift_id:keep.id,
-        count:total,
-        updated_at:new Date().toISOString()
-      },{onConflict:'user_id,gift_id'});
-      if(error)throw error;
+        name:g.name,
+        coin:g.coin,
+        emoji:'🎁',
+        target:10,
+        sort_order:i,
+        source:'event',
+        event_key:event,
+        group_name:g.group||null,
+        mascot:g.mascot||null,
+        variant:g.variant||null
+      }))
+    );
+
+    const missingEvents=eventRows.filter(g=>
+      !currentEventKeys.has(
+        `${g.event_key||''}|${g.name}|${g.coin}|${g.group_name||''}|${g.mascot||''}|${g.variant||''}`
+      )
+    );
+
+    if(missingEvents.length){
+      const {error}=await sb
+        .from('gift_definitions')
+        .insert(missingEvents);
+
+      if(error){
+        console.warn(
+          'イベントギフトの登録はスキップしました：',
+          error
+        );
+      }
     }
-
-    if(ids.length){
-      const {error}=await sb.from('gift_counts').delete()
-        .eq('user_id',userId).in('gift_id',ids);
-      if(error)throw error;
-      duplicateIds.push(...ids);
-    }
-  }
-
-  if(duplicateIds.length){
-    const {error}=await sb.from('gift_definitions').delete()
-      .eq('user_id',userId).in('id',duplicateIds);
-    if(error)throw error;
-  }
-
-  const {data:existing,error:reloadError}=await sb
-    .from('gift_definitions')
-    .select('id,name,coin,source,event_key,group_name,mascot,variant')
-    .eq('user_id',userId);
-  if(reloadError)throw reloadError;
-
-  const keySet=new Set((existing||[]).map(g=>
-    `${g.source||'original'}|${g.event_key||''}|${g.name}|${g.coin}|${g.group_name||''}|${g.mascot||''}|${g.variant||''}`
-  ));
-
-  const missing=all.filter(g=>!keySet.has(
-    `${g.source}|${g.event_key||''}|${g.name}|${g.coin}|${g.group_name||''}|${g.mascot||''}|${g.variant||''}`
-  ));
-
-  if(missing.length){
-    const {error}=await sb.from('gift_definitions').insert(missing);
-    if(error)throw error;
+  }catch(eventError){
+    console.warn(
+      'イベントギフト同期をスキップしました：',
+      eventError
+    );
   }
 }
 
@@ -445,13 +454,15 @@ async function loadGiftDefinitions(userId){
     data=retry.data||[];
   }
 
-  if(!data.length){
+  const officialCount=(data||[]).filter(g=>g.source==='official').length;
+
+  if(!officialCount){
     throw new Error(
-      `ギフト一覧が0件です。Supabaseのgift_definitionsを確認してください。公式ギフトは${OFFICIAL_GIFTS.length}種類登録される想定です。`
+      `公式ギフトが0件です。Supabaseのgift_definitionsへの登録を確認してください。公式ギフトは${OFFICIAL_GIFTS.length}種類です。`
     );
   }
 
-  return data;
+  return data||[];
 }
 
 async function load(){
