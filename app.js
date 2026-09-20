@@ -847,7 +847,7 @@ async function signOut(){
   state.profile=null;
   state.gifts=[];
   state.giftCounts={};
-  state.itemCounts=[];
+  state.itemCounts={};
   state.customProjects=[];
   state.customItems={};
   state.eventSettings={};
@@ -973,10 +973,13 @@ function home(){
       );
 
   const customTotal=
-    Object.values(state.customItems||{})
+    Object.entries(state.itemCounts||{})
+      .filter(
+        ([key])=>key.startsWith('custom:')
+      )
       .reduce(
-        (sum,item)=>
-          sum+Number(item.current||0),
+        (sum,[,value])=>
+          sum+Number(value||0),
         0
       );
 
@@ -2532,6 +2535,79 @@ function page(){
   return settings();
 }
 
+
+/* ==================================================
+   ここが今回追加した render()
+   ================================================== */
+
+function render(){
+
+  const root=
+    $('#app')||
+    $('#root')||
+    document.querySelector('main');
+
+  if(!root){
+    console.error(
+      '表示先の要素が見つかりません。#app / #root / main を確認してください。'
+    );
+    return;
+  }
+
+  applyTheme();
+
+  if(state.loading){
+    root.innerHTML=`
+      ${state.user?header():''}
+
+      <main class="container">
+        <div
+          class="card"
+          style="
+            text-align:center;
+            padding:40px 20px;
+          "
+        >
+          <div
+            style="
+              font-size:32px;
+              margin-bottom:10px;
+            "
+          >
+            ☁️
+          </div>
+
+          <strong>
+            読み込み中…
+          </strong>
+
+          <p class="muted">
+            データを確認しています。
+          </p>
+        </div>
+      </main>
+    `;
+
+    bind();
+    return;
+  }
+
+  root.innerHTML=`
+    ${header()}
+
+    <main class="container">
+      ${page()}
+    </main>
+  `;
+
+  bind();
+}
+
+
+/* ==================================================
+   ギフト関連
+   ================================================== */
+
 async function incrementGift(id){
   if(
     !sb||
@@ -2689,6 +2765,11 @@ async function resetCategory(cat){
   }
 }
 
+
+/* ==================================================
+   モーダル
+   ================================================== */
+
 function modal(html){
   const m=
     document.createElement('div');
@@ -2702,6 +2783,11 @@ function modal(html){
 
   return m;
 }
+
+
+/* ==================================================
+   設定
+   ================================================== */
 
 function quickSettings(){
   const colors=[
@@ -3493,6 +3579,11 @@ async function saveThemeMode(mode){
   }
 }
 
+
+/* ==================================================
+   イベント・ボタン処理
+   ================================================== */
+
 function bind(){
 
   document
@@ -3531,9 +3622,6 @@ function bind(){
     quickSettings
   );
 
-  /*
-   * ユーザー名変更
-   */
   $('#saveDisplayName')?.addEventListener(
     'click',
     async()=>{
@@ -3591,9 +3679,6 @@ function bind(){
     }
   );
 
-  /*
-   * ホワイト / ダークモード
-   */
   document
     .querySelectorAll(
       '[data-theme-mode]'
@@ -3820,8 +3905,8 @@ function bind(){
           const project=
             state.customProjects.find(
               p=>
-                p.id===
-                b.dataset.openCustom
+                String(p.id)===
+                String(b.dataset.openCustom)
             );
 
           if(project){
@@ -3841,8 +3926,8 @@ function bind(){
           const project=
             state.customProjects.find(
               p=>
-                p.id===
-                b.dataset.manageCustom
+                String(p.id)===
+                String(b.dataset.manageCustom)
             );
 
           if(project){
@@ -3852,6 +3937,11 @@ function bind(){
       }
     );
 }
+
+
+/* ==================================================
+   Supabase起動
+   ================================================== */
 
 if(sb){
   sb.auth.onAuthStateChange(()=>{
