@@ -190,7 +190,6 @@ let state={
   user:null,
   appUser:null,
   appUserId:null,
-  giftDefinitionUserId:null,
   profile:null,
 
   gifts:[],
@@ -307,7 +306,10 @@ async function loadCustomItems(){
   });
 }
 
-async function ensureOfficialGifts(appUserId, authUserId){
+async function ensureOfficialGifts(authUserId, appUserId){
+  if(!authUserId) throw new Error('認証ユーザーIDを取得できませんでした');
+  if(!appUserId) throw new Error('アプリユーザーIDを取得できませんでした');
+
   const all=[
     ...OFFICIAL_GIFTS.map((g,i)=>({
       ...g, source:'official', event_key:null, sort_order:i
@@ -317,176 +319,91 @@ async function ensureOfficialGifts(appUserId, authUserId){
         ...g, source:'event', event_key:event, sort_order:i
       }))
     )
-  ];
+  ].map(g=>({
+    user_id:authUserId,
+    name:g.name,
+    coin:g.coin,
+    emoji:'🎁',
+    target:10,
+    sort_order:g.sort_order,
+    source:g.source,
+    event_key:g.event_key,
+    group_name:g.group||null,
+    mascot:g.mascot||null,
+    variant:g.variant||null
+  }));
 
-  const candidates=[
-    appUserId,
-    authUserId
-  ].filter(Boolean).filter(
-    (v,i,a)=>a.indexOf(v)===i
-  );
+  const {data:existingAll,error:existingError}=await sb
+    .from('gift_definitions')
+    .select('id,name,coin,source,event_key')
+    .eq('user_id',authUserId);
+  if(existingError)throw existingError;
 
-  let lastError=null;
+  const existingOfficial=(existingAll||[]).filter(g=>g.source==='official');
+  const groups=new Map();
 
-  for(const ownerId of candidates){
-    const rows=all.map(g=>({
-      user_id:ownerId,
-      name:g.name,
-      coin:g.coin,
-      emoji:'🎁',
-      target:10,
-      sort_order:g.sort_order,
-      source:g.source,
-      event_key:g.event_key,
-      group_name:g.group||null,
-      mascot:g.mascot||null,
-      variant:g.variant||null
-    }));
-
-    const {
-      data:existingAll,
-      error:existingError
-    }=await sb
-      .from('gift_definitions')
-      .select('id,name,coin,source,event_key')
-      .eq('user_id',ownerId);
-
-    if(existingError){
-      lastError=existingError;
-      continue;
-    }
-
-    const existingOfficial=(existingAll||[]).filter(
-      g=>g.source==='official'
-    );
-
-    const groups=new Map();
-
-    for(const g of existingOfficial){
-      const key=`${g.name}|${g.coin}`;
-      if(!groups.has(key))groups.set(key,[]);
-      groups.get(key).push(g);
-    }
-
-    const duplicateIds=[];
-
-    for(const rowsOfSameGift of groups.values()){
-      if(rowsOfSameGift.length<=1)continue;
-
-      const keep=rowsOfSameGift[0];
-      const ids=rowsOfSameGift.slice(1).map(x=>x.id);
-
-      const {
-        data:counts,
-        error:countError
-      }=await sb
-        .from('gift_counts')
-        .select('gift_id,count')
-        .eq('user_id',appUserId)
-        .in('gift_id',[keep.id,...ids]);
-
-      if(countError){
-        lastError=countError;
-        continue;
-      }
-
-      const total=(counts||[]).reduce(
-        (sum,x)=>sum+Number(x.count||0),
-        0
-      );
-
-      if(total>0){
-        const {error}=await sb
-          .from('gift_counts')
-          .upsert({
-            user_id:appUserId,
-            gift_id:keep.id,
-            count:total,
-            updated_at:new Date().toISOString()
-          },{onConflict:'user_id,gift_id'});
-
-        if(error){
-          lastError=error;
-          continue;
-        }
-      }
-
-      if(ids.length){
-        const {error}=await sb
-          .from('gift_counts')
-          .delete()
-          .eq('user_id',appUserId)
-          .in('gift_id',ids);
-
-        if(error){
-          lastError=error;
-          continue;
-        }
-
-        duplicateIds.push(...ids);
-      }
-    }
-
-    if(duplicateIds.length){
-      const {error}=await sb
-        .from('gift_definitions')
-        .delete()
-        .eq('user_id',ownerId)
-        .in('id',duplicateIds);
-
-      if(error){
-        lastError=error;
-        continue;
-      }
-    }
-
-    const {
-      data:existing,
-      error:reloadError
-    }=await sb
-      .from('gift_definitions')
-      .select('id,name,coin,source,event_key')
-      .eq('user_id',ownerId);
-
-    if(reloadError){
-      lastError=reloadError;
-      continue;
-    }
-
-    const keySet=new Set(
-      (existing||[]).map(g=>
-        `${g.source||'original'}|${g.event_key||''}|${g.name}|${g.coin}`
-      )
-    );
-
-    const missing=rows.filter(g=>
-      !keySet.has(
-        `${g.source}|${g.event_key||''}|${g.name}|${g.coin}`
-      )
-    );
-
-    if(missing.length){
-      const {error}=await sb
-        .from('gift_definitions')
-        .insert(missing);
-
-      if(error){
-        lastError=error;
-        continue;
-      }
-    }
-
-    state.giftDefinitionUserId=ownerId;
-    return;
+  for(const g of existingOfficial){
+    const key=`${g.name}|${g.coin}`;
+    if(!groups.has(key))groups.set(key,[]);
+    groups.get(key).push(g);
   }
 
-  throw lastError || new Error(
-    'gift_definitions に利用可能なユーザーIDがありません。'
-  );
-}
+  const duplicateIds=[];
+  for(const rows of groups.values()){
+    if(rows.length<=1)continue;
+    const keep=rows[0];
+    const ids=rows.slice(1).map(x=>x.id);
 
-function giftOwnerId(){
-  return state.giftDefinitionUserId||state.appUserId;
+    const {data:counts,error:countError}=await sb
+      .from('gift_counts')
+      .select('gift_id,count')
+      .eq('user_id',appUserId)
+      .in('gift_id',[keep.id,...ids]);
+    if(countError)throw countError;
+
+    const total=(counts||[]).reduce((sum,x)=>sum+Number(x.count||0),0);
+    if(total>0){
+      const {error}=await sb.from('gift_counts').upsert({
+        user_id:appUserId,
+        gift_id:keep.id,
+        count:total,
+        updated_at:new Date().toISOString()
+      },{onConflict:'user_id,gift_id'});
+      if(error)throw error;
+    }
+
+    if(ids.length){
+      const {error}=await sb.from('gift_counts').delete()
+        .eq('user_id',appUserId).in('gift_id',ids);
+      if(error)throw error;
+      duplicateIds.push(...ids);
+    }
+  }
+
+  if(duplicateIds.length){
+    const {error}=await sb.from('gift_definitions').delete()
+      .eq('user_id',authUserId).in('id',duplicateIds);
+    if(error)throw error;
+  }
+
+  const {data:existing,error:reloadError}=await sb
+    .from('gift_definitions')
+    .select('id,name,coin,source,event_key')
+    .eq('user_id',authUserId);
+  if(reloadError)throw reloadError;
+
+  const keySet=new Set((existing||[]).map(g=>
+    `${g.source||'original'}|${g.event_key||''}|${g.name}|${g.coin}`
+  ));
+
+  const missing=all.filter(g=>!keySet.has(
+    `${g.source}|${g.event_key||''}|${g.name}|${g.coin}`
+  ));
+
+  if(missing.length){
+    const {error}=await sb.from('gift_definitions').insert(missing);
+    if(error)throw error;
+  }
 }
 
 async function loadInternal(){
@@ -557,8 +474,8 @@ async function loadInternal(){
 
     try{
       await ensureOfficialGifts(
-        state.appUserId,
-        state.user?.id
+        user.id,
+        state.appUserId
       );
     }catch(giftSetupError){
       console.error(
@@ -592,7 +509,7 @@ async function loadInternal(){
       sb
         .from('gift_definitions')
         .select('*')
-        .eq('user_id',giftOwnerId())
+        .eq('user_id',user.id)
         .order('coin')
         .order('source')
         .order('sort_order'),
@@ -693,7 +610,6 @@ async function loadInternal(){
   }else{
     state.appUser=null;
     state.appUserId=null;
-  state.giftDefinitionUserId=null;
     state.profile=null;
     state.gifts=[];
     state.giftCounts={};
@@ -786,13 +702,6 @@ async function startNewUser(){
     }
 
     await load();
-
-    // 新規ユーザー作成直後は、公式ギフトがまだ表示用 state に反映されていない場合があるため、
-    // ここでも公式ギフトを確実に初期化してから再読み込みします。
-    if(state.appUserId){
-      await ensureOfficialGifts(state.appUserId);
-      await load();
-    }
 
     if(!state.appUser?.user_code){
       throw new Error(
@@ -909,7 +818,6 @@ async function signOut(){
   state.user=null;
   state.appUser=null;
   state.appUserId=null;
-  state.giftDefinitionUserId=null;
   state.profile=null;
   state.gifts=[];
   state.giftCounts={};
@@ -2139,7 +2047,7 @@ function newOrigift(){
         await sb
           .from('gift_definitions')
           .insert({
-            user_id:giftOwnerId(),
+            user_id:state.user.id,
             name,
             coin,
             emoji,
@@ -3138,7 +3046,7 @@ function giftManager(){
         await sb
           .from('gift_definitions')
           .insert({
-            user_id:giftOwnerId(),
+            user_id:state.user.id,
             name,
             coin,
             emoji,
@@ -4021,7 +3929,7 @@ function bind(){
             )
             .eq(
               'user_id',
-              giftOwnerId()
+              state.user.id
             );
 
           await load();
