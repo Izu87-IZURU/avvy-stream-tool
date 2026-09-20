@@ -1,6 +1,5 @@
 const hasConfig=()=>window.SUPABASE_URL&&window.SUPABASE_ANON_KEY;
 let sb=null;
-let loadQueue=Promise.resolve();
 
 if(hasConfig()&&window.supabase){
   sb=window.supabase.createClient(
@@ -188,6 +187,7 @@ const EVENT_KEYS=Object.keys(EVENT_GIFTS);
 let state={
   tab:'home',
   user:null,
+  authUserId:null,
   appUser:null,
   appUserId:null,
   profile:null,
@@ -306,7 +306,7 @@ async function loadCustomItems(){
   });
 }
 
-async function ensureOfficialGifts(authUserId, appUserId){
+async function ensureOfficialGifts(authUserId,appUserId){
   const all=[
     ...OFFICIAL_GIFTS.map((g,i)=>({
       ...g, source:'official', event_key:null, sort_order:i
@@ -361,7 +361,7 @@ async function ensureOfficialGifts(authUserId, appUserId){
     const total=(counts||[]).reduce((sum,x)=>sum+Number(x.count||0),0);
     if(total>0){
       const {error}=await sb.from('gift_counts').upsert({
-        user_id:appUserId,
+        user_id:authUserId,
         gift_id:keep.id,
         count:total,
         updated_at:new Date().toISOString()
@@ -403,7 +403,7 @@ async function ensureOfficialGifts(authUserId, appUserId){
   }
 }
 
-async function loadInternal(){
+async function load(){
   state.loading=true;
   render();
 
@@ -418,6 +418,7 @@ async function loadInternal(){
   }=await sb.auth.getUser();
 
   state.user=user;
+  state.authUserId=user?.id||null;
 
   if(user){
     const {
@@ -471,7 +472,7 @@ async function loadInternal(){
 
     try{
       await ensureOfficialGifts(
-        user.id,
+        state.authUserId,
         state.appUserId
       );
     }catch(giftSetupError){
@@ -506,7 +507,7 @@ async function loadInternal(){
       sb
         .from('gift_definitions')
         .select('*')
-        .eq('user_id',user.id)
+        .eq('user_id',state.authUserId)
         .order('coin')
         .order('source')
         .order('sort_order'),
@@ -620,16 +621,6 @@ async function loadInternal(){
 
   state.loading=false;
   render();
-}
-
-async function load(){
-  const run=loadQueue.then(()=>loadInternal());
-  loadQueue=run.catch(error=>{
-    console.error('loadエラー:',error);
-    state.loading=false;
-    render();
-  });
-  return run;
 }
 
 async function signUp(
@@ -813,6 +804,7 @@ async function signOut(){
   await sb.auth.signOut();
 
   state.user=null;
+  state.authUserId=null;
   state.appUser=null;
   state.appUserId=null;
   state.profile=null;
@@ -969,6 +961,7 @@ function home(){
 
       <div class="card">
         <h3>🎁 ギフト</h3>
+r
         <div class="big">
           ${total}
         </div>
@@ -2043,7 +2036,7 @@ function newOrigift(){
         await sb
           .from('gift_definitions')
           .insert({
-            user_id:state.user.id,
+            user_id:state.authUserId,
             name,
             coin,
             emoji,
@@ -3042,7 +3035,7 @@ function giftManager(){
         await sb
           .from('gift_definitions')
           .insert({
-            user_id:state.user.id,
+            user_id:state.authUserId,
             name,
             coin,
             emoji,
@@ -3360,7 +3353,7 @@ function customManager(project){
         const itemId=
           b.dataset.delCustomItem;
 
-        const {error:countDeleteError}=await sb
+        await sb
           .from('endurance_item_counts')
           .delete()
           .eq(
@@ -3376,12 +3369,7 @@ function customManager(project){
             itemId
           );
 
-        if(countDeleteError){
-          toast(countDeleteError.message);
-          return;
-        }
-
-        const {error:itemDeleteError}=await sb
+        await sb
           .from('custom_items')
           .delete()
           .eq(
@@ -3392,11 +3380,6 @@ function customManager(project){
             'user_id',
             state.appUserId
           );
-
-        if(itemDeleteError){
-          toast(itemDeleteError.message);
-          return;
-        }
 
         await load();
 
@@ -3925,7 +3908,7 @@ function bind(){
             )
             .eq(
               'user_id',
-              state.user.id
+              state.authUserId
             );
 
           await load();
