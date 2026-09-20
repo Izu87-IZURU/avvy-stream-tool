@@ -402,6 +402,58 @@ async function ensureOfficialGifts(userId){
   }
 }
 
+async function loadGiftDefinitions(userId){
+  if(!sb||!userId){
+    throw new Error('ギフトを読み込むためのユーザー情報がありません。');
+  }
+
+  // まず公式ギフトの登録状態を確認・補修する。
+  await ensureOfficialGifts(userId);
+
+  let {data,error}=await sb
+    .from('gift_definitions')
+    .select('*')
+    .eq('user_id',userId)
+    .order('coin')
+    .order('source')
+    .order('sort_order');
+
+  if(error){
+    throw new Error(
+      `ギフト一覧の読み込みに失敗しました：${error.message||error}`
+    );
+  }
+
+  // 何らかの理由で空だった場合は、もう一度公式ギフトを同期して再取得する。
+  if(!data?.length){
+    await ensureOfficialGifts(userId);
+
+    const retry=await sb
+      .from('gift_definitions')
+      .select('*')
+      .eq('user_id',userId)
+      .order('coin')
+      .order('source')
+      .order('sort_order');
+
+    if(retry.error){
+      throw new Error(
+        `ギフト一覧の再読み込みに失敗しました：${retry.error.message||retry.error}`
+      );
+    }
+
+    data=retry.data||[];
+  }
+
+  if(!data.length){
+    throw new Error(
+      `ギフト一覧が0件です。Supabaseのgift_definitionsを確認してください。公式ギフトは${OFFICIAL_GIFTS.length}種類登録される想定です。`
+    );
+  }
+
+  return data;
+}
+
 async function load(){
   state.loading=true;
   render();
@@ -468,26 +520,29 @@ async function load(){
       }
     }
 
+    let giftDefinitions;
+
     try{
-      await ensureOfficialGifts(
+      giftDefinitions=await loadGiftDefinitions(
         state.appUserId
       );
     }catch(giftSetupError){
       console.error(
-        '公式ギフト初期化エラー:',
+        '公式ギフト読み込みエラー:',
         giftSetupError
       );
+      state.gifts=[];
       state.loading=false;
       render();
       toast(
-        '公式ギフトの準備に失敗しました。時間をおいて再読み込みしてください。'
+        giftSetupError?.message||
+        '公式ギフトの読み込みに失敗しました。'
       );
       return;
     }
 
     const [
       pr,
-      gd,
       gc,
       ic,
       cp,
@@ -500,14 +555,6 @@ async function load(){
         .select('*')
         .eq('id',state.appUserId)
         .maybeSingle(),
-
-      sb
-        .from('gift_definitions')
-        .select('*')
-        .eq('user_id',state.appUserId)
-        .order('coin')
-        .order('source')
-        .order('sort_order'),
 
       sb
         .from('gift_counts')
@@ -545,9 +592,25 @@ async function load(){
         .eq('user_id',state.appUserId)
     ]);
 
+    if(pr.error){
+      console.error('プロフィール読み込みエラー:',pr.error);
+    }
+
+    if(gc.error){
+      console.error('ギフト達成数読み込みエラー:',gc.error);
+      toast(
+        `ギフト達成数の読み込みに失敗しました：${gc.error.message||gc.error}`
+      );
+    }
+
     state.profile=pr.data||null;
 
-    state.gifts=gd.data||[];
+    // gift_definitionsはloadGiftDefinitionsで必ず存在確認済み。
+    state.gifts=giftDefinitions;
+
+    console.log(
+      `ギフト読み込み完了：${state.gifts.length}種類（公式${state.gifts.filter(g=>g.source==='official').length}種類）`
+    );
 
     state.giftCounts=
       Object.fromEntries(
