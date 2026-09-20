@@ -369,21 +369,24 @@ function customManager(project){
     m.remove();
   };
 
-  // 項目追加
+  // 項目を追加
   m.querySelector('#addCustomItem').onclick=async()=>{
     const input=m.querySelector('#newCustomItemName');
     const name=input.value.trim();
 
     if(!name){
-      return toast('項目名を入力してください');
+      toast('項目名を入力してください');
+      return;
     }
 
-    const {error}=await sb.from('custom_items').insert({
-      user_id:state.appUserId,
-      project_id:project.id,
-      name,
-      sort_order:items.length
-    });
+    const {error}=await sb
+      .from('custom_items')
+      .insert({
+        user_id:state.appUserId,
+        project_id:project.id,
+        name,
+        sort_order:items.length
+      });
 
     if(error){
       toast(error.message);
@@ -405,11 +408,8 @@ function customManager(project){
     toast('項目を追加しました');
   };
 
-  // ＋1
-  state.itemCounts[key]=next;
-
-// 今開いているモーダルを閉じる
-m.remove();
+  // 項目をタップして＋1
+  m.querySelectorAll('[data-custom-item]').forEach(b=>{
     b.onclick=async()=>{
       const itemId=b.dataset.customItem;
       const key=`custom:${project.id}:${itemId}`;
@@ -435,25 +435,27 @@ m.remove();
         return;
       }
 
+      // カウントを保存
       state.itemCounts[key]=next;
 
-      // 今開いているモーダルを閉じてから開き直す
-      m.remove();
+      // 画面上の回数だけ更新
+      const countSpan=b.querySelector('span');
 
-      const updatedProject=state.customProjects.find(
-        p=>p.id===project.id
-      );
-
-      if(updatedProject){
-        customManager(updatedProject);
+      if(countSpan){
+        countSpan.textContent=`${next}回`;
       }
+
+      // チェック状態にする
+      b.classList.add('checked');
     };
   });
 
-  // 項目削除
+  // 項目を削除
   m.querySelectorAll('[data-del-custom-item]').forEach(b=>{
     b.onclick=async()=>{
-      if(!confirm('この項目を削除しますか？')) return;
+      if(!confirm('この項目を削除しますか？')){
+        return;
+      }
 
       const itemId=b.dataset.delCustomItem;
 
@@ -484,7 +486,7 @@ m.remove();
     };
   });
 
-  // リセット
+  // カウントをリセット
   m.querySelector('#resetCustomProject').onclick=async()=>{
     if(!confirm('このカスタム耐久のカウントをリセットしますか？')){
       return;
@@ -500,16 +502,17 @@ m.remove();
       .filter(k=>k.startsWith(`custom:${project.id}:`))
       .forEach(k=>delete state.itemCounts[k]);
 
+    // 現在のモーダルを閉じる
     m.remove();
 
+    // リセット後の状態で開き直す
     customManager(project);
 
     toast('カスタム耐久をリセットしました');
   };
 
   return m;
-}</h2><button class="iconbtn" id="x">×</button></div><p class="muted">項目をタップすると＋1。項目の追加・削除もできます。</p><div class="form" style="margin-bottom:14px"><input id="newCustomItemName" placeholder="例：おにぎり"><button class="primary" id="addCustomItem">＋ 項目を追加</button></div><div class="choice-grid" id="customItems">${items.length?items.map(item=>{const count=Number(state.itemCounts[`custom:${project.id}:${item.id}`]||0);return `<div class="origift-card"><button class="choice-btn ${count>0?'checked':''}" data-custom-item="${item.id}"><strong>${esc(item.name)}</strong><span>${count}回</span></button><button class="danger small-btn" data-del-custom-item="${item.id}">削除</button></div>`}).join(''):`<div class="empty">まだ項目がありません。</div>`}</div><div class="coin-head" style="margin-top:14px"><span class="counterline">目標 ${Number(project.goal)||0}</span><button class="danger" id="resetCustomProject">リセット</button></div>`);m.querySelector('#x').onclick=()=>m.remove();m.querySelector('#addCustomItem').onclick=async()=>{const name=m.querySelector('#newCustomItemName').value.trim();if(!name)return toast('項目名を入力してください');const {error}=await sb.from('custom_items').insert({user_id:state.appUserId,project_id:project.id,name,sort_order:items.length});if(error)toast(error.message);else{await load();m.remove();customManager(state.customProjects.find(p=>p.id===project.id));toast('項目を追加しました')}};m.querySelectorAll('[data-custom-item]').forEach(b=>b.onclick=async()=>{const itemId=b.dataset.customItem;const key=`custom:${project.id}:${itemId}`;const next=Number(state.itemCounts[key]||0)+1;const {error}=await sb.from('endurance_item_counts').upsert({user_id:state.appUserId,category:`custom:${project.id}`,item_key:itemId,count:next,updated_at:new Date().toISOString()},{onConflict:'user_id,category,item_key'});if(error)toast(error.message);else{state.itemCounts[key]=next;customManager(state.customProjects.find(p=>p.id===project.id));}});m.querySelectorAll('[data-del-custom-item]').forEach(b=>b.onclick=async()=>{if(!confirm('この項目を削除しますか？'))return;const itemId=b.dataset.delCustomItem;await sb.from('endurance_item_counts').delete().eq('user_id',state.appUserId).eq('category',`custom:${project.id}`).eq('item_key',itemId);await sb.from('custom_items').delete().eq('id',itemId).eq('user_id',state.appUserId);await load();m.remove();customManager(state.customProjects.find(p=>p.id===project.id));});m.querySelector('#resetCustomProject').onclick=async()=>{if(!confirm('このカスタム耐久のカウントをリセットしますか？'))return;await sb.from('endurance_item_counts').delete().eq('user_id',state.appUserId).eq('category',`custom:${project.id}`);Object.keys(state.itemCounts).filter(k=>k.startsWith(`custom:${project.id}:`)).forEach(k=>delete state.itemCounts[k]);customManager(project);toast('カスタム耐久をリセットしました')};return m}
-function newCustom(){const m=modal(`<h2>✨ 新しいカスタム耐久</h2><div class="form"><label>耐久名</label><input id="pn" placeholder="例：コメント耐久"><label>目標数</label><input id="pg" type="number" min="1" value="50"><div class="row"><button class="primary" id="ok">作成</button><button class="secondary" id="cancel">キャンセル</button></div></div>`);m.querySelector('#cancel').onclick=()=>m.remove();m.querySelector('#ok').onclick=async()=>{const name=m.querySelector('#pn').value.trim()||'カスタム耐久',goal=Number(m.querySelector('#pg').value)||50;const {error}=await sb.from('endurance_projects').insert({user_id:state.appUserId,type:'custom',name,goal,current:0});if(error)toast(error.message);else{m.remove();await load();toast('カスタム耐久を作成しました')}}}
+}const m=modal(`<h2>✨ 新しいカスタム耐久</h2><div class="form"><label>耐久名</label><input id="pn" placeholder="例：コメント耐久"><label>目標数</label><input id="pg" type="number" min="1" value="50"><div class="row"><button class="primary" id="ok">作成</button><button class="secondary" id="cancel">キャンセル</button></div></div>`);m.querySelector('#cancel').onclick=()=>m.remove();m.querySelector('#ok').onclick=async()=>{const name=m.querySelector('#pn').value.trim()||'カスタム耐久',goal=Number(m.querySelector('#pg').value)||50;const {error}=await sb.from('endurance_projects').insert({user_id:state.appUserId,type:'custom',name,goal,current:0});if(error)toast(error.message);else{m.remove();await load();toast('カスタム耐久を作成しました')}}}
 async function saveThemeMode(mode){const {error}=await sb.from('profiles').update({theme_mode:mode,updated_at:new Date().toISOString()}).eq('id',state.appUserId);if(error)toast(error.message);else{state.themeMode=mode;applyTheme();render();toast(mode==='dark'?'ダークモードにしました':'ホワイトモードにしました')}}
 function bind(){
   document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;render()});
