@@ -406,7 +406,10 @@ function customManager(project){
   };
 
   // ＋1
-  m.querySelectorAll('[data-custom-item]').forEach(b=>{
+  state.itemCounts[key]=next;
+
+// 今開いているモーダルを閉じる
+m.remove();
     b.onclick=async()=>{
       const itemId=b.dataset.customItem;
       const key=`custom:${project.id}:${itemId}`;
