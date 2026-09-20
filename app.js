@@ -581,45 +581,41 @@ async function load(){
 ================================================== */
 
 async function startNewUser(){
-
-  if(!sb){
-    alert('Supabaseの設定がありません。');
-    return;
-  }
-
   try{
+    if(!sb){
+      throw new Error('Supabaseが設定されていません');
+    }
 
-    const {
-      data,
-      error
-    }=await sb.auth.signInAnonymously();
+    const { data, error } = await sb.auth.signInAnonymously();
 
-    if(error)throw error;
+    if(error){
+      throw error;
+    }
 
     if(!data?.user){
-      throw new Error(
-        '匿名ユーザーの作成に失敗しました。'
-      );
+      throw new Error('匿名ログインに失敗しました');
     }
 
     await load();
 
-    if(state.appUser?.user_code){
-      alert(
-        '新しくはじめました！\n\n' +
-        'あなたのユーザーコード：\n' +
-        state.appUser.user_code +
-        '\n\n設定画面からいつでも確認できます。'
-      );
+    if(!state.appUser?.user_code){
+      throw new Error('ユーザーコードの取得に失敗しました');
     }
 
-  }catch(error){
+    alert(
+      '新しくはじめました！\n\n' +
+      'あなたのユーザーコード：\n' +
+      state.appUser.user_code +
+      '\n\nこのコードはデータ引き継ぎに必要なので、大切に保管してください。'
+    );
 
-    console.error(error);
+  }catch(e){
+    console.error('新しくはじめるエラー:', e);
 
     alert(
-      '新しくはじめる処理に失敗しました。\n'+
-      (error.message||error)
+      '処理に失敗しました。\n\n' +
+      'エラー内容：\n' +
+      (e?.message || String(e))
     );
   }
 }
