@@ -296,8 +296,131 @@ function newOrigift(){
   m.querySelector('#ok').onclick=async()=>{const name=m.querySelector('#ogn').value.trim(),coin=Number(m.querySelector('#ogc').value),emoji=m.querySelector('#oge').value.trim()||'🎁',group=m.querySelector('#ogg').value.trim()||null;if(!name||!coin)return toast('ギフト名とコイン数を入力してください');const {error}=await sb.from('gift_definitions').insert({user_id:state.appUserId,name,coin,emoji,target:10,source:'original',group_name:group,sort_order:0});if(error)toast(error.message);else{m.remove();await load();toast('オリギフを追加しました')}} 
 }
 function custom(){if(!state.user)return auth();return `<div class="card"><div class="section-head"><div><h2>✨ カスタム</h2><p class="top-note">自分だけの耐久を作れます</p></div><button class="primary" id="newCustom">＋ 新規作成</button></div>${state.customProjects.length?`<div class="list">${state.customProjects.map(p=>{const current=Object.entries(state.itemCounts||{}).filter(([k])=>k.startsWith(`custom:${p.id}:`)).reduce((sum,[,v])=>sum+Number(v||0),0);return `<div class="item"><span><b>${esc(p.name)}</b><br><small class="muted">現在 ${current} / 目標 ${Number(p.goal)||0}</small></span><div class="row"><button class="secondary" data-open-custom="${p.id}">開く</button><button class="secondary" data-manage-custom="${p.id}">項目管理</button></div></div>`}).join('')}</div>`:`<div class="empty">まだカスタム耐久がありません。</div>`}</div>`}
-function settings(){if(!state.user)return auth();const displayName=state.profile?.display_name||'Avvyユーザー';const userCode=state.appUser?.user_code||'';return `<div class="grid"><div class="card"><h2>👤 アカウント</h2><p>${esc(displayName)}</p><div style="margin-top:12px;padding:12px;border-radius:10px;background:var(--accent-soft,rgba(0,0,0,.05));"><div class="muted" style="font-size:13px;">ユーザーコード</div><strong id="userCodeDisplay" style="font-size:20px;letter-spacing:1px;">${esc(userCode)}</strong></div><p class="muted">このコードを別の端末で入力すると、データを引き継げます。</p><div class="row" style="margin-top:10px;"><button class="secondary" id="copyUserCode">📋 コードをコピー</button></div><button class="danger" id="logout" style="margin-top:12px;">ログアウト</button></div><div class="card"><h2>🌓 表示モード</h2><p class="muted">ホワイトモードとダークモードを切り替えられます。</p><div class="row"><button class="${state.themeMode==='light'?'primary':'secondary'}" data-theme-mode="light">☀️ ホワイト</button><button class="${state.themeMode==='dark'?'primary':'secondary'}" data-theme-mode="dark">🌙 ダーク</button></div></div><div class="card"><h2>🎨 ボタンカラー</h2><p class="muted">ユーザー名横の⚙️から、ボタン・進捗バー・アクセントカラーを変更できます。</p><div class="row"><span class="pill" style="background:${state.accentColor};color:#fff">現在のカラー</span><button class="secondary" id="openAppearance">色を変更</button></div></div><div class="card"><h2>✨ カスタム耐久管理</h2><p class="muted">カスタム耐久で使用する項目を管理できます。</p><div id="customManageList">${state.customProjects?.length?state.customProjects.map(p=>`<div class="card" style="margin-top:12px;padding:14px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;"><div><strong>✨ ${esc(p.name)}</strong><div class="muted">目標 ${Number(p.goal)||0}</div></div><button class="secondary" data-manage-custom="${p.id}">項目管理</button></div></div>`).join(''):`<div class="empty">作成したカスタム耐久はありません。</div>`}</div></div><div class="card"><h2>☁️ クラウド</h2><p class="muted">耐久データと表示設定をクラウドに保存しています。</p></div></div>`}
-function render(){const app=$('#app');if(!app)return;app.innerHTML=header()+`<main id="content">${page()}</main>`;bind()}
+function settings(){
+  if(!state.user)return auth();
+
+  const displayName=state.profile?.display_name||'Avvyユーザー';
+  const userCode=state.appUser?.user_code||'';
+
+  return `<div class="grid">
+
+    <div class="card">
+      <h2>👤 アカウント</h2>
+
+      <p class="muted">現在のユーザー名</p>
+      <p style="font-size:20px;font-weight:700;margin:6px 0 18px;">
+        ${esc(displayName)}
+      </p>
+
+      <div class="form">
+        <label>ユーザー名を変更</label>
+        <input
+          id="newDisplayName"
+          type="text"
+          maxlength="30"
+          value="${esc(displayName)}"
+          placeholder="例：あびぃちゃん"
+        >
+        <button class="primary" id="saveDisplayName" type="button">
+          ユーザー名を変更する
+        </button>
+      </div>
+
+      <div style="margin-top:18px;padding:12px;border-radius:10px;background:var(--accent-soft,rgba(0,0,0,.05));">
+        <div class="muted" style="font-size:13px;">ユーザーコード</div>
+        <strong id="userCodeDisplay" style="font-size:20px;letter-spacing:1px;">
+          ${esc(userCode)}
+        </strong>
+      </div>
+
+      <p class="muted">
+        このコードを別の端末で入力すると、データを引き継げます。
+      </p>
+
+      <div class="row" style="margin-top:10px;">
+        <button class="secondary" id="copyUserCode">
+          📋 コードをコピー
+        </button>
+      </div>
+
+      <button class="danger" id="logout" style="margin-top:12px;">
+        ログアウト
+      </button>
+    </div>
+
+    <div class="card">
+      <h2>🌓 表示モード</h2>
+      <p class="muted">
+        ホワイトモードとダークモードを切り替えられます。
+      </p>
+
+      <div class="row">
+        <button class="${state.themeMode==='light'?'primary':'secondary'}" data-theme-mode="light">
+          ☀️ ホワイト
+        </button>
+
+        <button class="${state.themeMode==='dark'?'primary':'secondary'}" data-theme-mode="dark">
+          🌙 ダーク
+        </button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>🎨 ボタンカラー</h2>
+      <p class="muted">
+        ユーザー名横の⚙️から、ボタン・進捗バー・アクセントカラーを変更できます。
+      </p>
+
+      <div class="row">
+        <span class="pill" style="background:${state.accentColor};color:#fff">
+          現在のカラー
+        </span>
+
+        <button class="secondary" id="openAppearance">
+          色を変更
+        </button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>✨ カスタム耐久管理</h2>
+      <p class="muted">
+        カスタム耐久で使用する項目を管理できます。
+      </p>
+
+      <div id="customManageList">
+        ${
+          state.customProjects?.length
+            ? state.customProjects.map(p=>`
+              <div class="card" style="margin-top:12px;padding:14px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+                  <div>
+                    <strong>✨ ${esc(p.name)}</strong>
+                    <div class="muted">
+                      目標 ${Number(p.goal)||0}
+                    </div>
+                  </div>
+
+                  <button class="secondary" data-manage-custom="${p.id}">
+                    項目管理
+                  </button>
+                </div>
+              </div>
+            `).join('')
+            : `<div class="empty">作成したカスタム耐久はありません。</div>`
+        }
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>☁️ クラウド</h2>
+      <p class="muted">
+        耐久データと表示設定をクラウドに保存しています。
+      </p>
+    </div>
+
+  </div>`;
+}
 function page(){if(!state.user&&!hasConfig())return `<div class="card"><h2>Supabase接続設定が必要です</h2><p>config.jsを確認してください。</p></div>`;if(!state.user)return auth();if(state.tab==='home')return home();if(state.tab==='gift')return gift();if(state.tab==='pref')return choicePage('都道府県','📍','pref',PREF);if(state.tab==='mbti')return choicePage('MBTI','🧠','mbti',MBTI);if(state.tab==='zodiac')return choicePage('星座','⭐','zodiac',ZODIAC);if(state.tab==='origift')return origift();if(state.tab==='custom')return custom();return settings()}
 async function incrementGift(id){if(!sb||!state.user||!state.appUserId||String(id).startsWith('demo-')){if(String(id).startsWith('demo-'))toast('このサンプルギフトは「ギフト管理」から登録すると保存できます。');return;}const next=Number(state.giftCounts[id]||0)+1;const {error}=await sb.from('gift_counts').upsert({user_id:state.appUserId,gift_id:id,count:next,updated_at:new Date().toISOString()},{onConflict:'user_id,gift_id'});if(error)toast(error.message);else{state.giftCounts[id]=next;render()}}
 async function resetCoin(coin,source='official'){const ids=state.gifts.filter(g=>Number(g.coin)===Number(coin)&&g.source===source).map(g=>g.id);if(!ids.length)return;const {error}=await sb.from('gift_counts').delete().eq('user_id',state.appUserId).in('gift_id',ids);if(error)toast(error.message);else{ids.forEach(id=>delete state.giftCounts[id]);render();toast(`${coin}Cをリセットしました`)}}
@@ -609,6 +732,47 @@ function bind(){
   $('#openAppearance')?.addEventListener(
     'click',
     quickSettings
+  );
+    $('#saveDisplayName')?.addEventListener(
+    'click',
+    async()=>{
+      const input=$('#newDisplayName');
+
+      if(!input)return;
+
+      const name=input.value.trim();
+
+      if(!name){
+        toast('ユーザー名を入力してください');
+        return;
+      }
+
+      if(name.length>30){
+        toast('ユーザー名は30文字以内にしてください');
+        return;
+      }
+
+      const {error}=await sb
+        .from('profiles')
+        .update({
+          display_name:name,
+          updated_at:new Date().toISOString()
+        })
+        .eq('id',state.appUserId);
+
+      if(error){
+        console.error(error);
+        toast(error.message);
+        return;
+      }
+
+      state.profile=state.profile||{};
+      state.profile.display_name=name;
+
+      toast('ユーザー名を変更しました');
+
+      render();
+    }
   );
 
   document.querySelectorAll('[data-theme-mode]').forEach(b=>{
