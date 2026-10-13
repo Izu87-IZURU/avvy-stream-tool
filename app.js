@@ -214,6 +214,7 @@ let state={
 
   eventSettings:{},
   eventGiftSettings:{},
+  includeSeasonGiftsInEndurance:true,
   giftTargets:{},
 
   entryCount:0,
@@ -593,6 +594,8 @@ async function load(){
     }
 
     state.profile=pr.data||null;
+    state.includeSeasonGiftsInEndurance =
+      pr.data?.include_season_gifts_in_endurance !== false;
 
     state.gifts=gd.data||[];
 
@@ -1011,6 +1014,7 @@ function home(){
 
       <div class="card">
         <h3>🎁 ギフト</h3>
+r
         <div class="big">
           ${total}
         </div>
@@ -1110,7 +1114,7 @@ function gift(){
   const allSelected=[
     ...official,
     ...selectedEventGifts,
-    ...seasonGifts
+    ...(state.includeSeasonGiftsInEndurance ? seasonGifts : [])
   ];
 
   const overall=
@@ -1132,6 +1136,16 @@ function gift(){
           id="eventSettings"
         >
           イベント設定
+        </button>
+      </div>
+
+      <div class="row" style="margin:10px 0 8px;align-items:center;justify-content:space-between">
+        <div>
+          <strong>シーズンギフトを全ギフ耐久に含める</strong>
+          <p class="top-note">ONにすると期間限定ギフトも全ギフ耐久の達成数に加算します。</p>
+        </div>
+        <button class="${state.includeSeasonGiftsInEndurance?'primary':'secondary'}" id="toggleSeasonGiftEndurance" aria-pressed="${state.includeSeasonGiftsInEndurance}">
+          ${state.includeSeasonGiftsInEndurance?'ON':'OFF'}
         </button>
       </div>
 
@@ -1411,7 +1425,7 @@ function giftButtons(gs){
               data-gift="${g.id}"
             >
               <strong>
-                🎁 ${esc(g.name)}
+                🎁 ${esc(g.source==='season' ? `${g.name}（${Number(g.coin)}c）` : g.name)}
               </strong>
 
               <span>
@@ -1746,6 +1760,29 @@ async function editGiftTarget(raw){
   }
 }
 
+async function toggleSeasonGiftEndurance(){
+  if(!state.user||!state.appUserId){
+    toast('ログインしてから設定してください');
+    return;
+  }
+  const nextValue=!state.includeSeasonGiftsInEndurance;
+  const {error}=await sb
+    .from('profiles')
+    .update({
+      include_season_gifts_in_endurance:nextValue,
+      updated_at:new Date().toISOString()
+    })
+    .eq('id',state.appUserId);
+  if(error){
+    toast('設定を保存できませんでした。先にSQL設定を実行してください。');
+    console.error('シーズンギフト設定保存エラー:',error);
+    return;
+  }
+  state.includeSeasonGiftsInEndurance=nextValue;
+  render();
+  toast(nextValue?'シーズンギフトを全ギフ耐久に含めます':'シーズンギフトを全ギフ耐久から除外しました');
+}
+
 async function resetAllGifts(){
   if(!state.user||!state.appUserId){
     toast('ログインしてから実行してください');
@@ -1753,7 +1790,7 @@ async function resetAllGifts(){
   }
 
   const confirmed=confirm(
-    '公式ギフト・イベント限定ギフト・オリギフを含む、すべてのギフトの達成カウントを0に戻します。イベント設定やギフト設定は変更されません。\n\n一括リセットしますか？'
+    '公式ギフト・イベント限定ギフト・シーズンギフト・オリギフを含む、すべてのギフトの達成カウントを0に戻します。イベント設定、シーズンギフトの対象設定、ギフト設定は変更されません。\n\n一括リセットしますか？'
   );
   if(!confirmed)return;
 
@@ -4147,6 +4184,7 @@ function bind(){
   );
 
   $('#resetAllGifts')?.addEventListener('click',resetAllGifts);
+  $('#toggleSeasonGiftEndurance')?.addEventListener('click',toggleSeasonGiftEndurance);
 
   document
     .querySelectorAll(
