@@ -1419,20 +1419,25 @@ function giftButtons(gs){
       ${
         gs.map(
           g=>`
-            <button
-              class="gift-btn"
-              data-gift="${g.id}"
-            >
-              <strong>
-                🎁 ${esc(g.source==='season' ? `${g.name}（${Number(g.coin)}c）` : g.name)}
-              </strong>
+            <div class="gift-card" style="display:flex;flex-direction:column;gap:6px;min-width:0">
+              <button
+                class="gift-btn"
+                data-gift="${g.id}"
+                style="width:100%"
+              >
+                <strong>
+                  🎁 ${esc(g.source==='season' ? `${g.name}（${Number(g.coin)}c）` : g.name)}
+                </strong>
 
-              <span>
-                ${Number(
-                  state.giftCounts[g.id]||0
-                )}個
-              </span>
-            </button>
+                <span>
+                  ${Number(state.giftCounts[g.id]||0)}個
+                </span>
+              </button>
+              <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap">
+                <button type="button" class="secondary" data-gift-minus="${g.id}" ${Number(state.giftCounts[g.id]||0)<=0?'disabled':''} aria-label="${esc(g.name)}を1個減らす">−1</button>
+                ${g.source==='season' ? `<button type="button" class="danger" data-reset-gift="${g.id}">個別リセット</button>` : ''}
+              </div>
+            </div>
           `
         ).join('')
       }
@@ -2964,6 +2969,36 @@ async function incrementGift(id){
   }
 }
 
+async function decrementGift(id){
+  if(!sb||!state.user||!state.appUserId)return;
+  const current=Number(state.giftCounts[id]||0);
+  if(current<=0){toast('カウントは0未満にできません');return;}
+  const next=current-1;
+  if(next===0){
+    const {error}=await sb.from('gift_counts').delete().eq('user_id',state.appUserId).eq('gift_id',id);
+    if(error){toast('カウントを減らせませんでした：'+error.message);return;}
+    delete state.giftCounts[id];
+  }else{
+    const {error}=await sb.from('gift_counts').upsert({user_id:state.appUserId,gift_id:id,count:next,updated_at:new Date().toISOString()},{onConflict:'user_id,gift_id'});
+    if(error){toast('カウントを減らせませんでした：'+error.message);return;}
+    state.giftCounts[id]=next;
+  }
+  render();
+  toast('カウントを1個減らしました');
+}
+
+async function resetSingleGift(id){
+  if(!sb||!state.user||!state.appUserId)return;
+  const gift=state.gifts.find(g=>String(g.id)===String(id));
+  if(!gift||gift.source!=='season')return;
+  if(!confirm(`「${gift.name}」のカウントを0に戻しますか？`))return;
+  const {error}=await sb.from('gift_counts').delete().eq('user_id',state.appUserId).eq('gift_id',id);
+  if(error){toast('個別リセットに失敗しました：'+error.message);return;}
+  delete state.giftCounts[id];
+  render();
+  toast(`${gift.name}をリセットしました`);
+}
+
 async function resetCoin(
   coin,
   source='official'
@@ -4137,6 +4172,18 @@ function bind(){
         };
       }
     );
+
+  document
+    .querySelectorAll('[data-gift-minus]')
+    .forEach(b=>{
+      b.onclick=()=>decrementGift(b.dataset.giftMinus);
+    });
+
+  document
+    .querySelectorAll('[data-reset-gift]')
+    .forEach(b=>{
+      b.onclick=()=>resetSingleGift(b.dataset.resetGift);
+    });
 
   document
     .querySelectorAll('[data-reset-coin]')
