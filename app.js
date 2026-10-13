@@ -179,6 +179,14 @@ const EVENT_GIFTS={
     {name:'チャーハン',coin:5},
     {name:'麻雀牌',coin:5},
     {name:'パンダまん',coin:50}
+  ],
+
+  'ハロウィンナイト':[
+    {name:'ゴースト',coin:5},
+    {name:'黒猫',coin:5},
+    {name:'ガイコツ',coin:5},
+    {name:'コウモリ',coin:5},
+    {name:'ロリポップ',coin:50}
   ]
 };
 
@@ -971,23 +979,23 @@ function home(){
     <div class="grid">
 
       <div class="card">
-  <h3>🎁 ギフト</h3>
+        <h3>🎁 ギフト</h3>
+r
+        <div class="big">
+          ${total}
+        </div>
 
-  <div class="big">
-    ${total}
-  </div>
+        <p class="muted">
+          登録ギフトの合計カウント
+        </p>
 
-  <p class="muted">
-    登録ギフトの合計カウント
-  </p>
-
-  <button
-    class="primary"
-    data-jump="gift"
-  >
-    ギフト耐久を開く
-  </button>
-</div>
+        <button
+          class="primary"
+          data-jump="gift"
+        >
+          ギフト耐久を開く
+        </button>
+      </div>
 
       <div class="card">
         <h3>📊 企画カウント</h3>
