@@ -1193,7 +1193,10 @@ function giftSeasonGroup(){
           <div class="coin-title">🎃 シーズンギフト</div>
           <p class="top-note">イベント設定とは別枠の期間限定ギフト</p>
         </div>
-        <span class="pill">10月限定</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+          <button type="button" class="danger" data-reset-gift="${gs[0].id}">リセット</button>
+          <span class="pill">10月限定</span>
+        </div>
       </div>
       ${summaryHtml(giftTypeSummary(gs))}
       ${giftButtons(gs)}
@@ -1435,7 +1438,6 @@ function giftButtons(gs){
               </button>
               <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap">
                 <button type="button" class="secondary" data-gift-minus="${g.id}" ${Number(state.giftCounts[g.id]||0)<=0?'disabled':''} aria-label="${esc(g.name)}を1個減らす">−1</button>
-                ${g.source==='season' ? `<button type="button" class="danger" data-reset-gift="${g.id}">個別リセット</button>` : ''}
               </div>
             </div>
           `
