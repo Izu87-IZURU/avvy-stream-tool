@@ -376,14 +376,14 @@ async function ensureOfficialGifts(userId){
     const {data:counts,error:countError}=await sb
       .from('gift_counts')
       .select('gift_id,count')
-      .eq('user_id',state.user.id)
+      .eq('user_id',state.appUserId)
       .in('gift_id',[keep.id,...ids]);
     if(countError)throw countError;
 
     const total=(counts||[]).reduce((sum,x)=>sum+Number(x.count||0),0);
     if(total>0){
       const {error}=await sb.from('gift_counts').upsert({
-        user_id:state.user.id,
+        user_id:state.appUserId,
         gift_id:keep.id,
         count:total,
         updated_at:new Date().toISOString()
@@ -393,7 +393,7 @@ async function ensureOfficialGifts(userId){
 
     if(ids.length){
       const {error}=await sb.from('gift_counts').delete()
-        .eq('user_id',state.user.id).in('gift_id',ids);
+        .eq('user_id',state.appUserId).in('gift_id',ids);
       if(error)throw error;
       duplicateIds.push(...ids);
     }
@@ -543,7 +543,7 @@ async function load(){
       sb
         .from('gift_counts')
         .select('*')
-        .eq('user_id',state.user.id),
+        .eq('user_id',state.appUserId),
 
       sb
         .from('endurance_item_counts')
@@ -1803,7 +1803,7 @@ async function resetAllGifts(){
   const {error}=await sb
     .from('gift_counts')
     .delete()
-    .eq('user_id',state.user.id);
+    .eq('user_id',state.appUserId);
 
   if(error){
     toast('一括リセットに失敗しました：'+error.message);
@@ -1830,7 +1830,7 @@ function resetEvent(event){
   sb
     .from('gift_counts')
     .delete()
-    .eq('user_id',state.user.id)
+    .eq('user_id',state.appUserId)
     .in('gift_id',ids)
     .then(
       ({error})=>{
@@ -2952,7 +2952,7 @@ async function incrementGift(id){
       .from('gift_counts')
       .upsert(
         {
-          user_id:state.user.id,
+          user_id:state.appUserId,
           gift_id:id,
           count:next,
           updated_at:new Date().toISOString()
@@ -2977,11 +2977,11 @@ async function decrementGift(id){
   if(current<=0){toast('カウントは0未満にできません');return;}
   const next=current-1;
   if(next===0){
-    const {error}=await sb.from('gift_counts').delete().eq('user_id',state.user.id).eq('gift_id',id);
+    const {error}=await sb.from('gift_counts').delete().eq('user_id',state.appUserId).eq('gift_id',id);
     if(error){toast('カウントを減らせませんでした：'+error.message);return;}
     delete state.giftCounts[id];
   }else{
-    const {error}=await sb.from('gift_counts').upsert({user_id:state.user.id,gift_id:id,count:next,updated_at:new Date().toISOString()},{onConflict:'user_id,gift_id'});
+    const {error}=await sb.from('gift_counts').upsert({user_id:state.appUserId,gift_id:id,count:next,updated_at:new Date().toISOString()},{onConflict:'user_id,gift_id'});
     if(error){toast('カウントを減らせませんでした：'+error.message);return;}
     state.giftCounts[id]=next;
   }
@@ -2994,7 +2994,7 @@ async function resetSingleGift(id){
   const gift=state.gifts.find(g=>String(g.id)===String(id));
   if(!gift||gift.source!=='season')return;
   if(!confirm(`「${gift.name}」のカウントを0に戻しますか？`))return;
-  const {error}=await sb.from('gift_counts').delete().eq('user_id',state.user.id).eq('gift_id',id);
+  const {error}=await sb.from('gift_counts').delete().eq('user_id',state.appUserId).eq('gift_id',id);
   if(error){toast('個別リセットに失敗しました：'+error.message);return;}
   delete state.giftCounts[id];
   render();
@@ -3020,7 +3020,7 @@ async function resetCoin(
     await sb
       .from('gift_counts')
       .delete()
-      .eq('user_id',state.user.id)
+      .eq('user_id',state.appUserId)
       .in('gift_id',ids);
 
   if(error){
@@ -4316,7 +4316,7 @@ function bind(){
           .delete()
           .eq(
             'user_id',
-            state.user.id
+            state.appUserId
           )
           .in(
             'gift_id',
