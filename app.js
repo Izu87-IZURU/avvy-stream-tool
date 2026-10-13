@@ -180,8 +180,21 @@ const EVENT_GIFTS={
     {name:'チャーハン',coin:5},
     {name:'麻雀牌',coin:5},
     {name:'パンダまん',coin:50}
+  ],
+
+  'ハロウィンナイト':[
+    {name:'ゴースト',coin:5},
+    {name:'黒猫',coin:5},
+    {name:'ガイコツ',coin:5},
+    {name:'コウモリ',coin:5},
+    {name:'ロリポップ',coin:50}
   ]
 };
+
+// イベントのON/OFFとは独立したシーズン限定ギフト
+const SEASON_GIFTS=[
+  {name:'ハロウィンナイト',coin:1000,season:'10月限定'}
+];
 
 const EVENT_KEYS=Object.keys(EVENT_GIFTS);
 
@@ -320,7 +333,10 @@ async function ensureOfficialGifts(userId){
       gs.map((g,i)=>({
         ...g, source:'event', event_key:event, sort_order:i
       }))
-    )
+    ),
+    ...SEASON_GIFTS.map((g,i)=>({
+      ...g, source:'season', event_key:null, sort_order:i
+    }))
   ].map(g=>({
     user_id:userId,
     name:g.name,
@@ -995,6 +1011,7 @@ function home(){
 
       <div class="card">
         <h3>🎁 ギフト</h3>
+r
         <div class="big">
           ${total}
         </div>
@@ -1089,9 +1106,12 @@ function gift(){
         state.eventGiftSettings[g.id]!==false
     );
 
+  const seasonGifts=state.gifts.filter(g=>g.source==='season');
+
   const allSelected=[
     ...official,
-    ...selectedEventGifts
+    ...selectedEventGifts,
+    ...seasonGifts
   ];
 
   const overall=
@@ -1113,6 +1133,12 @@ function gift(){
           id="eventSettings"
         >
           イベント設定
+        </button>
+      </div>
+
+      <div class="row" style="margin:10px 0 14px;justify-content:flex-end">
+        <button class="danger" id="resetAllGifts">
+          全ギフ耐久を一括リセット
         </button>
       </div>
 
@@ -1139,6 +1165,26 @@ function gift(){
           `
       }
 
+      ${giftSeasonGroup()}
+
+    </div>
+  `;
+}
+
+function giftSeasonGroup(){
+  const gs=state.gifts.filter(g=>g.source==='season');
+  if(!gs.length)return '';
+  return `
+    <div class="event-group">
+      <div class="coin-head">
+        <div>
+          <div class="coin-title">🎃 シーズンギフト</div>
+          <p class="top-note">イベント設定とは別枠の期間限定ギフト</p>
+        </div>
+        <span class="pill">10月限定</span>
+      </div>
+      ${summaryHtml(giftTypeSummary(gs))}
+      ${giftButtons(gs)}
     </div>
   `;
 }
@@ -1699,6 +1745,32 @@ async function editGiftTarget(raw){
       '目標個数を更新しました'
     );
   }
+}
+
+async function resetAllGifts(){
+  if(!state.user||!state.appUserId){
+    toast('ログインしてから実行してください');
+    return;
+  }
+
+  const confirmed=confirm(
+    '公式ギフト・イベント限定ギフト・オリギフを含む、すべてのギフトの達成カウントを0に戻します。イベント設定やギフト設定は変更されません。\n\n一括リセットしますか？'
+  );
+  if(!confirmed)return;
+
+  const {error}=await sb
+    .from('gift_counts')
+    .delete()
+    .eq('user_id',state.appUserId);
+
+  if(error){
+    toast('一括リセットに失敗しました：'+error.message);
+    return;
+  }
+
+  state.giftCounts={};
+  render();
+  toast('すべてのギフト達成カウントをリセットしました');
 }
 
 function resetEvent(event){
@@ -4074,6 +4146,8 @@ function bind(){
     'click',
     eventSettingsModal
   );
+
+  $('#resetAllGifts')?.addEventListener('click',resetAllGifts);
 
   document
     .querySelectorAll(
