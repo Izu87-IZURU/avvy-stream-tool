@@ -11,6 +11,7 @@ if(hasConfig()&&window.supabase){
 const TABS=[
   ['home','🏠','ホーム'],
   ['gift','🎁','ギフト'],
+  ['entry','🚪','入室耐久'],
   ['pref','📍','都道府県'],
   ['mbti','🧠','MBTI'],
   ['zodiac','⭐','星座'],
@@ -179,14 +180,6 @@ const EVENT_GIFTS={
     {name:'チャーハン',coin:5},
     {name:'麻雀牌',coin:5},
     {name:'パンダまん',coin:50}
-  ],
-
-  'ハロウィンナイト':[
-    {name:'ゴースト',coin:5},
-    {name:'黒猫',coin:5},
-    {name:'ガイコツ',coin:5},
-    {name:'コウモリ',coin:5},
-    {name:'ロリポップ',coin:50}
   ]
 };
 
@@ -209,6 +202,11 @@ let state={
   eventSettings:{},
   eventGiftSettings:{},
   giftTargets:{},
+
+  entryCount:0,
+  entryGoal:100,
+  entryRules:[],
+  entryOpenSection:'coin',
 
   themeMode:'light',
   accentColor:'#e98f8f',
@@ -560,6 +558,23 @@ async function load(){
         .select('*')
         .eq('user_id',state.appUserId)
     ]);
+
+    // 入室耐久設定（専用テーブルが未作成の場合は初期値のまま起動）
+    try{
+      const {data:entryData,error:entryError}=await sb
+        .from('entry_endurance_settings')
+        .select('entry_count,entry_goal,rules')
+        .eq('user_id',state.appUserId)
+        .maybeSingle();
+      if(entryError)throw entryError;
+      if(entryData){
+        state.entryCount=Number(entryData.entry_count)||0;
+        state.entryGoal=Math.max(1,Number(entryData.entry_goal)||100);
+        state.entryRules=Array.isArray(entryData.rules)?entryData.rules:[];
+      }
+    }catch(entryLoadError){
+      console.warn('入室耐久設定を読み込めませんでした。SQL設定を確認してください。',entryLoadError);
+    }
 
     state.profile=pr.data||null;
 
@@ -2497,6 +2512,10 @@ function page(){
     return gift();
   }
 
+  if(state.tab==='entry'){
+    return entryEndurance();
+  }
+
   if(state.tab==='pref'){
     return choicePage(
       '都道府県',
@@ -2535,6 +2554,190 @@ function page(){
   return settings();
 }
 
+
+/* ==================================================
+   入室耐久
+   ================================================== */
+
+function entryEndurance(){
+  const goal=Math.max(1,Number(state.entryGoal)||100);
+  const count=Math.max(0,Number(state.entryCount)||0);
+  const pct=Math.min(100,count/goal*100);
+  const sections=[
+    {id:'coin',title:'コイン救済',icon:'🪙',description:'条件・対象ギフト・加算数を設定'},
+    {id:'first',title:'初見入室救済',icon:'👋',description:'初見さん用の加算ボタンを作成'},
+    {id:'other',title:'その他の救済',icon:'⚙️',description:'好きな名前の救済ボタンを作成'}
+  ];
+  return `
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>🚪 入室耐久</h2>
+          <p class="top-note">入室数を手動で記録し、救済ルールも自由に設定できます。</p>
+        </div>
+        <button class="danger" id="resetEntry">リセット</button>
+      </div>
+      <div class="target-summary">
+        <div class="target-main">
+          <strong>${count} / ${goal}</strong>
+          <span>目標まであと ${Math.max(0,goal-count)}</span>
+        </div>
+        <div class="progress"><i style="width:${pct}%"></i></div>
+      </div>
+      <div class="row" style="margin:12px 0;align-items:center;flex-wrap:wrap">
+        <button class="secondary" id="entryMinus">−1</button>
+        <button class="primary" id="entryPlus">＋1 入室</button>
+        <label style="display:flex;gap:8px;align-items:center">
+          目標人数
+          <input id="entryGoalInput" type="number" min="1" value="${goal}" style="width:100px">
+        </label>
+      </div>
+      <h3 style="margin-top:22px">救済ルール</h3>
+      <p class="muted">項目を開いてルールを追加。登録した「＋〇」を押すと入室数に加算されます。</p>
+      ${sections.map(section=>{
+        const open=state.entryOpenSection===section.id;
+        const rules=state.entryRules.filter(rule=>rule.type===section.id);
+        return `
+          <section class="event-setting-box" style="margin-top:10px">
+            <button type="button" class="secondary" data-entry-toggle="${section.id}" style="width:100%;display:flex;justify-content:space-between;align-items:center">
+              <span>${section.icon} ${section.title}</span>
+              <span>${open?'▴':'▾'}</span>
+            </button>
+            ${open?`
+              <div style="padding:12px 0">
+                ${rules.length?rules.map(rule=>`
+                  <div class="item" style="gap:8px;flex-wrap:wrap">
+                    <span style="flex:1;min-width:130px">
+                      <b>${esc(rule.name)}</b>
+                      ${rule.type==='coin'?`<br><small class="muted">${esc(rule.scope==='selected'?'指定ギフト':'全ギフト')}・${Number(rule.threshold)||0}コインごと</small>`:''}
+                    </span>
+                    <button class="primary" data-entry-add="${esc(rule.id)}">＋${Number(rule.amount)||1}</button>
+                    <button class="secondary" data-entry-edit="${esc(rule.id)}" title="編集">編集</button>
+                    <button class="danger" data-entry-delete="${esc(rule.id)}">削除</button>
+                  </div>
+                `).join(''):'<div class="empty">まだルールがありません。</div>'}
+                <button class="secondary" data-entry-new="${section.id}" style="margin-top:10px;width:100%">＋ 救済ルールを追加</button>
+              </div>
+            `:''}
+          </section>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+async function saveEntrySettings(){
+  if(!sb||!state.appUserId){
+    toast('ログイン後に保存できます');
+    return false;
+  }
+  const payload={
+    user_id:state.appUserId,
+    entry_count:Math.max(0,Math.floor(Number(state.entryCount)||0)),
+    entry_goal:Math.max(1,Math.floor(Number(state.entryGoal)||100)),
+    rules:state.entryRules,
+    updated_at:new Date().toISOString()
+  };
+  const {error}=await sb.from('entry_endurance_settings').upsert(payload,{onConflict:'user_id'});
+  if(error){
+    console.error('入室耐久保存エラー:',error);
+    toast('入室耐久を保存できません。SQL設定を確認してください。');
+    return false;
+  }
+  return true;
+}
+
+function openEntryRuleEditor(type, existing=null){
+  const titles={coin:'コイン救済',first:'初見入室救済',other:'その他の救済'};
+  const rule=existing||{id:`entry-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,type,name:'',amount:1,scope:'all',threshold:50,giftIds:[]};
+  const m=modal(`
+    <div class="section-head">
+      <h2>${existing?'救済ルールを編集':'救済ルールを追加'}</h2>
+      <button class="iconbtn" id="entryRuleClose">×</button>
+    </div>
+    <div class="form">
+      <label>ルール名</label>
+      <input id="entryRuleName" maxlength="60" placeholder="${type==='coin'?'例：50コイン救済':type==='first'?'例：初見さん入室':'例：コメント救済'}" value="${esc(rule.name)}">
+      ${type==='coin'?`
+        <label>対象ギフト</label>
+        <select id="entryRuleScope">
+          <option value="all" ${rule.scope!=='selected'?'selected':''}>全ギフトのコイン合計</option>
+          <option value="selected" ${rule.scope==='selected'?'selected':''}>指定ギフト（手動ボタン運用）</option>
+        </select>
+        <label>何コインごと？</label>
+        <input id="entryRuleThreshold" type="number" min="1" value="${Number(rule.threshold)||50}">
+        <p class="muted">ここで設定する条件はルールの目安表示です。加算は登録後の「＋〇」ボタンを押したときに行います。</p>
+      `:''}
+      <label>タップ時の入室加算数</label>
+      <input id="entryRuleAmount" type="number" min="1" step="1" value="${Number(rule.amount)||1}">
+      <button class="primary" id="entryRuleSave">保存</button>
+    </div>
+  `);
+  m.querySelector('#entryRuleClose').onclick=()=>m.remove();
+  m.querySelector('#entryRuleSave').onclick=async()=>{
+    const name=m.querySelector('#entryRuleName').value.trim();
+    const amount=Math.floor(Number(m.querySelector('#entryRuleAmount').value));
+    if(!name){toast('ルール名を入力してください');return;}
+    if(!Number.isFinite(amount)||amount<1){toast('加算数は1以上で入力してください');return;}
+    const updated={
+      ...rule,name,amount,
+      ...(type==='coin'?{
+        scope:m.querySelector('#entryRuleScope').value,
+        threshold:Math.max(1,Math.floor(Number(m.querySelector('#entryRuleThreshold').value)||1))
+      }:{})
+    };
+    if(existing){
+      state.entryRules=state.entryRules.map(x=>x.id===existing.id?updated:x);
+    }else{
+      state.entryRules=[...state.entryRules,updated];
+    }
+    m.remove();
+    render();
+    await saveEntrySettings();
+  };
+}
+
+async function bindEntryEndurance(){
+  $('#entryPlus')?.addEventListener('click',async()=>{
+    state.entryCount=Math.max(0,Number(state.entryCount)||0)+1;
+    render(); await saveEntrySettings();
+  });
+  $('#entryMinus')?.addEventListener('click',async()=>{
+    state.entryCount=Math.max(0,(Number(state.entryCount)||0)-1);
+    render(); await saveEntrySettings();
+  });
+  $('#entryGoalInput')?.addEventListener('change',async e=>{
+    state.entryGoal=Math.max(1,Math.floor(Number(e.target.value)||1));
+    render(); await saveEntrySettings();
+  });
+  $('#resetEntry')?.addEventListener('click',async()=>{
+    if(!confirm('入室カウントを0に戻しますか？'))return;
+    state.entryCount=0; render(); await saveEntrySettings();
+  });
+  document.querySelectorAll('[data-entry-toggle]').forEach(b=>b.onclick=()=>{
+    state.entryOpenSection=state.entryOpenSection===b.dataset.entryToggle?'':b.dataset.entryToggle;
+    render();
+  });
+  document.querySelectorAll('[data-entry-new]').forEach(b=>b.onclick=()=>{
+    openEntryRuleEditor(b.dataset.entryNew);
+  });
+  document.querySelectorAll('[data-entry-add]').forEach(b=>b.onclick=async()=>{
+    const rule=state.entryRules.find(x=>String(x.id)===b.dataset.entryAdd);
+    if(!rule)return;
+    state.entryCount=Math.max(0,Number(state.entryCount)||0)+Math.max(1,Math.floor(Number(rule.amount)||1));
+    render(); await saveEntrySettings();
+  });
+  document.querySelectorAll('[data-entry-edit]').forEach(b=>b.onclick=()=>{
+    const rule=state.entryRules.find(x=>String(x.id)===b.dataset.entryEdit);
+    if(rule)openEntryRuleEditor(rule.type,rule);
+  });
+  document.querySelectorAll('[data-entry-delete]').forEach(b=>b.onclick=async()=>{
+    const rule=state.entryRules.find(x=>String(x.id)===b.dataset.entryDelete);
+    if(!rule||!confirm(`「${rule.name}」を削除しますか？`))return;
+    state.entryRules=state.entryRules.filter(x=>x.id!==rule.id);
+    render(); await saveEntrySettings();
+  });
+}
 
 /* ==================================================
    ここが今回追加した render()
@@ -3688,6 +3891,10 @@ function bind(){
         };
       }
     );
+
+  if(state.tab==='entry'){
+    bindEntryEndurance();
+  }
 
   $('#quickSettings')?.addEventListener(
     'click',
