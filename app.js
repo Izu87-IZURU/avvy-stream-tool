@@ -4074,35 +4074,50 @@ function bind(){
         return;
       }
 
-      const {error}=
-        await sb
-          .from('profiles')
-          .update({
-            display_name:name,
-            updated_at:new Date().toISOString()
-          })
-          .eq(
-            'id',
-            state.appUserId
-          );
-
-      if(error){
-        console.error(error);
-        toast(error.message);
+      if(!sb||!state.appUserId){
+        toast('ユーザー情報を読み込めていません。再読み込みしてください');
         return;
       }
 
-      state.profile=
-        state.profile||{};
+      try{
+        const {data:updatedProfile,error:updateError}=
+          await sb
+            .from('profiles')
+            .update({
+              display_name:name,
+              updated_at:new Date().toISOString()
+            })
+            .eq('id',state.appUserId)
+            .select('*')
+            .maybeSingle();
 
-      state.profile.display_name=
-        name;
+        if(updateError)throw updateError;
 
-      toast(
-        'ユーザー名を変更しました'
-      );
+        let savedProfile=updatedProfile;
+        if(!savedProfile){
+          const {data:insertedProfile,error:insertError}=
+            await sb
+              .from('profiles')
+              .insert({
+                id:state.appUserId,
+                display_name:name,
+                theme_mode:state.themeMode||'light',
+                accent_color:state.accentColor||'#e98f8f',
+                updated_at:new Date().toISOString()
+              })
+              .select('*')
+              .single();
+          if(insertError)throw insertError;
+          savedProfile=insertedProfile;
+        }
 
-      render();
+        state.profile=savedProfile;
+        toast('ユーザー名を変更しました');
+        render();
+      }catch(error){
+        console.error('ユーザー名の保存エラー:',error);
+        toast('ユーザー名を保存できませんでした：'+(error.message||String(error)));
+      }
     }
   );
 
