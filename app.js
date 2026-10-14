@@ -376,14 +376,14 @@ async function ensureOfficialGifts(userId){
     const {data:counts,error:countError}=await sb
       .from('gift_counts')
       .select('gift_id,count')
-      .eq('user_id',state.appUserId)
+      .eq('user_id',state.user.id)
       .in('gift_id',[keep.id,...ids]);
     if(countError)throw countError;
 
     const total=(counts||[]).reduce((sum,x)=>sum+Number(x.count||0),0);
     if(total>0){
       const {error}=await sb.from('gift_counts').upsert({
-        user_id:state.appUserId,
+        user_id:state.user.id,
         gift_id:keep.id,
         count:total,
         updated_at:new Date().toISOString()
@@ -393,7 +393,7 @@ async function ensureOfficialGifts(userId){
 
     if(ids.length){
       const {error}=await sb.from('gift_counts').delete()
-        .eq('user_id',state.appUserId).in('gift_id',ids);
+        .eq('user_id',state.user.id).in('gift_id',ids);
       if(error)throw error;
       duplicateIds.push(...ids);
     }
@@ -474,7 +474,7 @@ async function load(){
     }=await sb
       .from('profiles')
       .select('*')
-      .eq('id',state.appUserId)
+      .eq('id',state.user.id)
       .maybeSingle();
 
     if(profileCheckError){
@@ -487,7 +487,7 @@ async function load(){
       }=await sb
         .from('profiles')
         .insert({
-          id:state.appUserId,
+          id:state.user.id,
           display_name:'Avvyユーザー',
           theme_mode:'light',
           accent_color:'#e98f8f',
@@ -529,7 +529,7 @@ async function load(){
       sb
         .from('profiles')
         .select('*')
-        .eq('id',state.appUserId)
+        .eq('id',state.user.id)
         .maybeSingle(),
 
       sb
@@ -543,7 +543,7 @@ async function load(){
       sb
         .from('gift_counts')
         .select('*')
-        .eq('user_id',state.appUserId),
+        .eq('user_id',state.user.id),
 
       sb
         .from('endurance_item_counts')
@@ -1778,7 +1778,7 @@ async function toggleSeasonGiftEndurance(){
       include_season_gifts_in_endurance:nextValue,
       updated_at:new Date().toISOString()
     })
-    .eq('id',state.appUserId);
+    .eq('id',state.user.id);
   if(error){
     toast('設定を保存できませんでした。先にSQL設定を実行してください。');
     console.error('シーズンギフト設定保存エラー:',error);
@@ -1803,7 +1803,7 @@ async function resetAllGifts(){
   const {error}=await sb
     .from('gift_counts')
     .delete()
-    .eq('user_id',state.appUserId);
+    .eq('user_id',state.user.id);
 
   if(error){
     toast('一括リセットに失敗しました：'+error.message);
@@ -1830,7 +1830,7 @@ function resetEvent(event){
   sb
     .from('gift_counts')
     .delete()
-    .eq('user_id',state.appUserId)
+    .eq('user_id',state.user.id)
     .in('gift_id',ids)
     .then(
       ({error})=>{
@@ -2952,7 +2952,7 @@ async function incrementGift(id){
       .from('gift_counts')
       .upsert(
         {
-          user_id:state.appUserId,
+          user_id:state.user.id,
           gift_id:id,
           count:next,
           updated_at:new Date().toISOString()
@@ -2977,11 +2977,11 @@ async function decrementGift(id){
   if(current<=0){toast('カウントは0未満にできません');return;}
   const next=current-1;
   if(next===0){
-    const {error}=await sb.from('gift_counts').delete().eq('user_id',state.appUserId).eq('gift_id',id);
+    const {error}=await sb.from('gift_counts').delete().eq('user_id',state.user.id).eq('gift_id',id);
     if(error){toast('カウントを減らせませんでした：'+error.message);return;}
     delete state.giftCounts[id];
   }else{
-    const {error}=await sb.from('gift_counts').upsert({user_id:state.appUserId,gift_id:id,count:next,updated_at:new Date().toISOString()},{onConflict:'user_id,gift_id'});
+    const {error}=await sb.from('gift_counts').upsert({user_id:state.user.id,gift_id:id,count:next,updated_at:new Date().toISOString()},{onConflict:'user_id,gift_id'});
     if(error){toast('カウントを減らせませんでした：'+error.message);return;}
     state.giftCounts[id]=next;
   }
@@ -2994,7 +2994,7 @@ async function resetSingleGift(id){
   const gift=state.gifts.find(g=>String(g.id)===String(id));
   if(!gift||gift.source!=='season')return;
   if(!confirm(`「${gift.name}」のカウントを0に戻しますか？`))return;
-  const {error}=await sb.from('gift_counts').delete().eq('user_id',state.appUserId).eq('gift_id',id);
+  const {error}=await sb.from('gift_counts').delete().eq('user_id',state.user.id).eq('gift_id',id);
   if(error){toast('個別リセットに失敗しました：'+error.message);return;}
   delete state.giftCounts[id];
   render();
@@ -3020,7 +3020,7 @@ async function resetCoin(
     await sb
       .from('gift_counts')
       .delete()
-      .eq('user_id',state.appUserId)
+      .eq('user_id',state.user.id)
       .in('gift_id',ids);
 
   if(error){
@@ -3237,7 +3237,7 @@ async function saveTheme(
         accent_color:color,
         updated_at:new Date().toISOString()
       })
-      .eq('id',state.appUserId);
+      .eq('id',state.user.id);
 
   if(error){
     toast(error.message);
@@ -3982,7 +3982,7 @@ async function saveThemeMode(mode){
       })
       .eq(
         'id',
-        state.appUserId
+        state.user.id
       );
 
   if(error){
@@ -4074,50 +4074,35 @@ function bind(){
         return;
       }
 
-      if(!sb||!state.appUserId){
-        toast('ユーザー情報を読み込めていません。再読み込みしてください');
+      const {error}=
+        await sb
+          .from('profiles')
+          .update({
+            display_name:name,
+            updated_at:new Date().toISOString()
+          })
+          .eq(
+            'id',
+            state.user.id
+          );
+
+      if(error){
+        console.error(error);
+        toast(error.message);
         return;
       }
 
-      try{
-        const {data:updatedProfile,error:updateError}=
-          await sb
-            .from('profiles')
-            .update({
-              display_name:name,
-              updated_at:new Date().toISOString()
-            })
-            .eq('id',state.appUserId)
-            .select('*')
-            .maybeSingle();
+      state.profile=
+        state.profile||{};
 
-        if(updateError)throw updateError;
+      state.profile.display_name=
+        name;
 
-        let savedProfile=updatedProfile;
-        if(!savedProfile){
-          const {data:insertedProfile,error:insertError}=
-            await sb
-              .from('profiles')
-              .insert({
-                id:state.appUserId,
-                display_name:name,
-                theme_mode:state.themeMode||'light',
-                accent_color:state.accentColor||'#e98f8f',
-                updated_at:new Date().toISOString()
-              })
-              .select('*')
-              .single();
-          if(insertError)throw insertError;
-          savedProfile=insertedProfile;
-        }
+      toast(
+        'ユーザー名を変更しました'
+      );
 
-        state.profile=savedProfile;
-        toast('ユーザー名を変更しました');
-        render();
-      }catch(error){
-        console.error('ユーザー名の保存エラー:',error);
-        toast('ユーザー名を保存できませんでした：'+(error.message||String(error)));
-      }
+      render();
     }
   );
 
@@ -4331,7 +4316,7 @@ function bind(){
           .delete()
           .eq(
             'user_id',
-            state.appUserId
+            state.user.id
           )
           .in(
             'gift_id',
